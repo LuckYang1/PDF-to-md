@@ -1,2 +1,14 @@
-pref("enable", true);
-pref("input", "This is input");
+pref("apiToken", "");
+pref("modelVersion", "vlm");
+pref("language", "ch");
+pref("isOcr", false);
+pref("enableFormula", true);
+pref("enableTable", true);
+pref("autoConvert", false);
+pref("exportDir", "");
+pref("exportPerItem", false);
+pref("exportLastType", "");
+pref("useLocalApi", false);
+pref("localApiUrl", "http://192.168.196.101:8002");
+pref("localApiType", "router");
+pref("localRouterConcurrency", 2);

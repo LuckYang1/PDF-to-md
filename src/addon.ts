@@ -1,6 +1,6 @@
 import { config } from "../package.json";
-import { ColumnOptions, DialogHelper } from "zotero-plugin-toolkit";
 import hooks from "./hooks";
+import { PDFToMarkdownService } from "./modules/pdfToMd";
 import { createZToolkit } from "./utils/ztoolkit";
 
 class Addon {
@@ -14,16 +14,10 @@ class Addon {
     locale?: {
       current: any;
     };
-    prefs?: {
-      window: Window;
-      columns: Array<ColumnOptions>;
-      rows: Array<{ [dataKey: string]: string }>;
-    };
-    dialog?: DialogHelper;
+    service: PDFToMarkdownService;
   };
   // Lifecycle hooks
   public hooks: typeof hooks;
-  // APIs
   public api: object;
 
   constructor() {
@@ -33,6 +27,7 @@ class Addon {
       env: __env__,
       initialized: false,
       ztoolkit: createZToolkit(),
+      service: new PDFToMarkdownService(),
     };
     this.hooks = hooks;
     this.api = {};

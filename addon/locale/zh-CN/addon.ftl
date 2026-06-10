@@ -1,11 +1,6 @@
-startup-begin = 插件加载中
-startup-finish = 插件已就绪
-menuitem-label = 插件模板: 帮助工具样例
-menupopup-label = 插件模板: 弹出菜单
-menuitem-submenulabel = 插件模板：子菜单
-menuitem-filemenulabel = 插件模板: 文件菜单
-prefs-title = 插件模板
-prefs-table-title = 标题
-prefs-table-detail = 详情
-tabpanel-lib-tab-label = 库标签
-tabpanel-reader-tab-label = 阅读器标签
+startup-finish = PDF to Markdown 已就绪
+menu-root = PDF to Markdown
+menu-convert-markdown = 转换为 Markdown (MinerU)
+menu-convert-html = 转换为 HTML (MinerU)
+menu-export = 导出附件
+menu-export-to = 导出附件到…

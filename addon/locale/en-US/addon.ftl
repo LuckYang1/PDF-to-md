@@ -1,11 +1,6 @@
-startup-begin = Addon is loading
-startup-finish = Addon is ready
-menuitem-label = Addon Template: Helper Examples
-menupopup-label = Addon Template: Menupopup
-menuitem-submenulabel = Addon Template
-menuitem-filemenulabel = Addon Template: File Menuitem
-prefs-title = Template
-prefs-table-title = Title
-prefs-table-detail = Detail
-tabpanel-lib-tab-label = Lib Tab
-tabpanel-reader-tab-label = Reader Tab
+startup-finish = PDF to Markdown is ready
+menu-root = PDF to Markdown
+menu-convert-markdown = Convert to Markdown (MinerU)
+menu-convert-html = Convert to HTML (MinerU)
+menu-export = Export Attachments
+menu-export-to = Export Attachments To…

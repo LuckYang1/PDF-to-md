@@ -7,8 +7,20 @@
 declare namespace _ZoteroTypes {
   interface Prefs {
     PluginPrefsMap: {
-      "enable": boolean;
-      "input": string;
+      "apiToken": string;
+      "modelVersion": string;
+      "language": string;
+      "isOcr": boolean;
+      "enableFormula": boolean;
+      "enableTable": boolean;
+      "autoConvert": boolean;
+      "exportDir": string;
+      "exportPerItem": boolean;
+      "exportLastType": string;
+      "useLocalApi": boolean;
+      "localApiUrl": string;
+      "localApiType": string;
+      "localRouterConcurrency": number;
     };
   }
 }

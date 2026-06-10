@@ -1,33 +1,163 @@
 <linkset>
   <html:link rel="localization" href="__addonRef__-preferences.ftl" />
 </linkset>
-<groupbox
+<vbox
+  id="__addonRef__-preferences"
   onload="Zotero.__addonInstance__.hooks.onPrefsEvent('load', { window })"
 >
-  <label><html:h2 data-l10n-id="pref-title"></html:h2></label>
-  <checkbox
-    id="zotero-prefpane-__addonRef__-enable"
-    preference="enable"
-    data-l10n-id="pref-enable"
-  />
-  <hbox>
+  <groupbox>
+    <label><html:h2 data-l10n-id="pref-mineru-title"></html:h2></label>
+    <hbox align="center">
+      <label
+        data-l10n-id="pref-api-token"
+        control="zotero-prefpane-__addonRef__-token"
+      />
+      <html:input
+        type="password"
+        id="zotero-prefpane-__addonRef__-token"
+        preference="apiToken"
+        style="flex: 1; margin-left: 6px"
+      />
+    </hbox>
+    <hbox align="center">
+      <label
+        data-l10n-id="pref-model"
+        control="zotero-prefpane-__addonRef__-model"
+      />
+      <menulist
+        id="zotero-prefpane-__addonRef__-model"
+        native="true"
+        preference="modelVersion"
+      >
+        <menupopup>
+          <menuitem label="vlm" value="vlm" />
+          <menuitem label="pipeline" value="pipeline" />
+        </menupopup>
+      </menulist>
+      <label
+        data-l10n-id="pref-language"
+        control="zotero-prefpane-__addonRef__-language"
+        style="margin-left: 12px"
+      />
+      <html:input
+        type="text"
+        id="zotero-prefpane-__addonRef__-language"
+        preference="language"
+        style="width: 4em"
+      />
+    </hbox>
+    <checkbox
+      native="true"
+      preference="enableFormula"
+      data-l10n-id="pref-enable-formula"
+    />
+    <checkbox
+      native="true"
+      preference="enableTable"
+      data-l10n-id="pref-enable-table"
+    />
+    <checkbox native="true" preference="isOcr" data-l10n-id="pref-is-ocr" />
+    <checkbox
+      native="true"
+      preference="autoConvert"
+      data-l10n-id="pref-auto-convert"
+    />
+    <description data-l10n-id="pref-mineru-help"></description>
+  </groupbox>
+
+  <groupbox>
+    <label><html:h2 data-l10n-id="pref-local-title"></html:h2></label>
+    <checkbox
+      native="true"
+      preference="useLocalApi"
+      data-l10n-id="pref-use-local-api"
+    />
+    <hbox align="center">
+      <label
+        data-l10n-id="pref-local-api-url"
+        control="zotero-prefpane-__addonRef__-local-api-url"
+      />
+      <html:input
+        type="text"
+        id="zotero-prefpane-__addonRef__-local-api-url"
+        preference="localApiUrl"
+        style="flex: 1; margin-left: 6px"
+      />
+    </hbox>
+    <hbox align="center">
+      <label
+        data-l10n-id="pref-local-api-type"
+        control="zotero-prefpane-__addonRef__-local-api-type"
+      />
+      <menulist
+        id="zotero-prefpane-__addonRef__-local-api-type"
+        native="true"
+        preference="localApiType"
+      >
+        <menupopup>
+          <menuitem data-l10n-id="pref-local-api-type-direct" value="api" />
+          <menuitem data-l10n-id="pref-local-api-type-router" value="router" />
+        </menupopup>
+      </menulist>
+    </hbox>
+    <hbox align="center">
+      <label
+        data-l10n-id="pref-local-router-concurrency"
+        control="zotero-prefpane-__addonRef__-local-router-concurrency"
+      />
+      <html:input
+        type="number"
+        id="zotero-prefpane-__addonRef__-local-router-concurrency"
+        preference="localRouterConcurrency"
+        min="1"
+        max="8"
+        step="1"
+        style="width: 5em; margin-left: 6px"
+      />
+      <button
+        id="zotero-prefpane-__addonRef__-local-test"
+        data-l10n-id="pref-local-test"
+        style="margin-left: 12px"
+      />
+      <label
+        id="zotero-prefpane-__addonRef__-local-test-status"
+        value=""
+        style="margin-left: 8px"
+      />
+    </hbox>
+    <description data-l10n-id="pref-local-help"></description>
+  </groupbox>
+
+  <groupbox>
+    <label><html:h2 data-l10n-id="pref-export-title"></html:h2></label>
+    <hbox align="center">
+      <label
+        data-l10n-id="pref-export-dir"
+        control="zotero-prefpane-__addonRef__-export-dir"
+      />
+      <html:input
+        type="text"
+        id="zotero-prefpane-__addonRef__-export-dir"
+        preference="exportDir"
+        style="flex: 1; margin-left: 6px"
+      />
+      <button
+        id="zotero-prefpane-__addonRef__-export-choose"
+        data-l10n-id="pref-export-choose"
+      />
+    </hbox>
+    <checkbox
+      native="true"
+      preference="exportPerItem"
+      data-l10n-id="pref-export-per-item"
+    />
+    <description data-l10n-id="pref-export-help"></description>
+  </groupbox>
+
+  <vbox>
     <html:label
-      for="zotero-prefpane-__addonRef__-input"
-      data-l10n-id="pref-input"
+      data-l10n-id="pref-help"
+      data-l10n-args='{"time": "__buildTime__","name": "__addonName__","version":"__buildVersion__"}'
     ></html:label>
-    <html:input
-      type="text"
-      id="zotero-prefpane-__addonRef__-input"
-      preference="input"
-    ></html:input>
-  </hbox>
-  <hbox class="virtualized-table-container" flex="1" height="300px">
-    <html:div id="__addonRef__-table-container" />
-  </hbox>
-</groupbox>
-<vbox>
-  <html:label
-    data-l10n-id="pref-help"
-    data-l10n-args='{"time": "__buildTime__","name": "__addonName__","version":"__buildVersion__"}'
-  ></html:label>
+  </vbox>
 </vbox>
