@@ -1,6 +1,7 @@
 pref-title = PDF to Markdown
 pref-help = { $name } Build { $version } { $time }
 pref-mineru-title = MinerU
+pref-parser-title = Parser settings
 pref-api-token = API Token:
 pref-model = Model:
 pref-language = Language:
@@ -13,6 +14,7 @@ pref-is-ocr =
 pref-auto-convert =
     .label = Auto-convert newly added PDF attachments
 pref-mineru-help = Get a token from mineru.net/apiManage. If no token is configured, lightweight mode is used (≤20 pages, rate limited). Language: ch = Chinese/English, en = English.
+pref-parser-help = Formula recognition, table recognition, force OCR, and language settings apply to token, lightweight, and local API modes. When local API is enabled, PDFs are not uploaded to mineru.net.
 pref-local-title = Local API
 pref-use-local-api =
     .label = Use local MinerU API
@@ -25,7 +27,7 @@ pref-local-api-type-router =
 pref-local-router-concurrency = Router concurrency:
 pref-local-test =
     .label = Test local API
-pref-local-help = Direct API = HOST:8000 file_parse (sync). Router = HOST:8002 tasks (async polling).
+pref-local-help = Get a token from mineru.net/apiManage. Direct API example: http://127.0.0.1:8000. Router example: http://127.0.0.1:8002.
 pref-export-title = Attachment export
 pref-export-dir = Default folder:
 pref-export-choose =

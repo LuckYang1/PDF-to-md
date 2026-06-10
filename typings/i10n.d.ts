@@ -31,6 +31,8 @@ export type FluentMessageId =
   | 'pref-mineru-help'
   | 'pref-mineru-title'
   | 'pref-model'
+  | 'pref-parser-help'
+  | 'pref-parser-title'
   | 'pref-title'
   | 'pref-use-local-api'
   | 'startup-finish';

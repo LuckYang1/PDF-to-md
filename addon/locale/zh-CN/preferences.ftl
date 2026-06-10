@@ -1,6 +1,7 @@
 pref-title = PDF to Markdown
 pref-help = { $name } Build { $version } { $time }
 pref-mineru-title = MinerU
+pref-parser-title = 解析设置
 pref-api-token = API Token:
 pref-model = 模型:
 pref-language = 语言:
@@ -13,6 +14,7 @@ pref-is-ocr =
 pref-auto-convert =
     .label = 自动转换新增 PDF 附件
 pref-mineru-help = Token 可在 mineru.net/apiManage 获取。未填写 Token 时使用轻量模式(≤20 页,有频率限制)。语言: ch = 中英混合,en = 英文。
+pref-parser-help = 公式识别、表格识别、强制 OCR 和语言设置同时用于 Token、轻量模式和本地 API。勾选本地 API 后将不上传到 mineru.net。
 pref-local-title = 本地 API
 pref-use-local-api =
     .label = 使用本地 MinerU API
@@ -25,7 +27,7 @@ pref-local-api-type-router =
 pref-local-router-concurrency = Router 并发:
 pref-local-test =
     .label = 测试本地 API
-pref-local-help = 直连 API = HOST:8000 file_parse(同步)。Router = HOST:8002 tasks(异步轮询)。
+pref-local-help = Token 可在 mineru.net/apiManage 获取。直连 API 示例: http://127.0.0.1:8000。Router 示例: http://127.0.0.1:8002。
 pref-export-title = 附件导出
 pref-export-dir = 默认文件夹:
 pref-export-choose =

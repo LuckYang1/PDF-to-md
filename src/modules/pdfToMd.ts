@@ -36,6 +36,7 @@ export type ConversionJob = {
   outputFormat: OutputFormat;
   contentType: "text/markdown" | "text/html";
   dataId: string;
+  progressKey: string;
   finished: boolean;
   saved: boolean;
   errMsg: string;
@@ -44,11 +45,20 @@ export type ConversionJob = {
 type StatusBox = {
   win: ZoteroWindow;
   el: HTMLElement;
-  head: HTMLElement;
-  list: HTMLElement;
-  note: HTMLElement;
-  rows: Map<string, HTMLElement>;
   timer: number | null;
+};
+
+type ProgressState = {
+  headline: string;
+  note: string;
+  rows: Map<string, { text: string; kind?: "done" | "error" }>;
+  total: number;
+  done: number;
+  queued: number;
+  current: string;
+  currentStatus: string;
+  active: boolean;
+  minimized: boolean;
 };
 
 const HTML_NS = "http://www.w3.org/1999/xhtml";
@@ -72,6 +82,21 @@ export class PDFToMarkdownService {
   private autoQueue = new Set<number>();
   private autoScheduled = false;
   private status: StatusBox | null = null;
+  private queueTotal = 0;
+  private queueDone = 0;
+  private enqueuedSignatures = new Set<string>();
+  private progressState: ProgressState = {
+    headline: "",
+    note: "",
+    rows: new Map(),
+    total: 0,
+    done: 0,
+    queued: 0,
+    current: "",
+    currentStatus: "",
+    active: false,
+    minimized: false,
+  };
 
   init(): void {
     this.notifierID = Zotero.Notifier.registerObserver(
@@ -93,6 +118,7 @@ export class PDFToMarkdownService {
       this.notifierID = null;
     }
     this.removeFromAllWindows();
+    this.clearProgressState();
   }
 
   registerPrefs(): void {
@@ -130,7 +156,8 @@ export class PDFToMarkdownService {
 
     const updateVisibility = () => {
       const items = this.getSelectedItems(win);
-      parent.hidden = !this.hasProcessableSelection(items);
+      parent.hidden =
+        !this.hasProcessableSelection(items) && !this.hasDisplayableProgress();
     };
     itemmenu.addEventListener("popupshowing", updateVisibility);
 
@@ -145,9 +172,19 @@ export class PDFToMarkdownService {
         });
       });
       popup.appendChild(mi);
+      return mi;
     };
 
     popup.addEventListener("popupshowing", updateVisibility);
+
+    const progressItem = add("show-progress", "显示当前进度", async () => {
+      this.showCurrentProgress();
+    });
+    const separator = doc.createXULElement("menuseparator");
+    popup.appendChild(separator);
+    popup.addEventListener("popupshowing", () => {
+      progressItem.disabled = !this.hasDisplayableProgress();
+    });
 
     add("convert-md", "转换为 Markdown (MinerU)", () =>
       this.convertSelectedItems(win, "markdown"),
@@ -157,6 +194,8 @@ export class PDFToMarkdownService {
     );
     add("export", "导出附件", () => this.exportSelected(win, false));
     add("export-to", "导出附件到…", () => this.exportSelected(win, true));
+
+    if (this.hasDisplayableProgress()) this.renderProgressUI();
   }
 
   removeFromAllWindows(): void {
@@ -198,10 +237,35 @@ export class PDFToMarkdownService {
     win: ZoteroWindow | null,
     opts: ConvertOptions,
   ): Promise<void> {
-    if (this.busy) this.toast(["PDF2MD: 已加入队列"], 2000);
+    const signature = this.enqueueSignature(items, opts.outputFormat);
+    if (this.enqueuedSignatures.has(signature)) {
+      this.toast(["PDF2MD: 相同任务已在队列中"], 2000);
+      return this.chain;
+    }
+    this.enqueuedSignatures.add(signature);
+    const queued = this.busy || this.progressState.active;
+    const estimatedJobs = this.estimateJobs(items);
+    if (!queued && this.queueDone >= this.queueTotal) {
+      this.queueTotal = 0;
+      this.queueDone = 0;
+    }
+    if (queued) {
+      this.queueTotal += estimatedJobs;
+      this.statusTotal(this.queueTotal);
+      this.toast(["PDF2MD: 已加入队列"], 2000);
+    }
     this.chain = this.chain
-      .then(() => this.runConversion(items, win, opts))
-      .catch((e) => this.log(`Run error: ${this.errorMessage(e)}`));
+      .then(async () => {
+        try {
+          await this.runConversion(items, win, opts);
+        } finally {
+          this.enqueuedSignatures.delete(signature);
+        }
+      })
+      .catch((e) => {
+        this.enqueuedSignatures.delete(signature);
+        this.log(`Run error: ${this.errorMessage(e)}`);
+      });
     return this.chain;
   }
 
@@ -266,10 +330,14 @@ export class PDFToMarkdownService {
 
     this.busy = true;
     try {
-      this.statusShow(`PDF2MD ${outputFormat.toUpperCase()} 0/${jobs.length}`);
-      for (const job of jobs) {
-        this.statusLine(job.dataId, `• ${this.short(job.pdfName)}`);
-      }
+      this.queueTotal = Math.max(this.queueTotal, this.queueDone + jobs.length);
+      this.statusShow(
+        `PDF2MD ${outputFormat.toUpperCase()} ${this.queueDone}/${this.queueTotal}`,
+      );
+      this.statusTotal(this.queueTotal);
+      this.statusDone(this.queueDone);
+      this.statusQueued(0);
+      this.statusCurrent(jobs[0], "等待中");
 
       const notes: string[] = [];
       if (useLocal)
@@ -281,8 +349,11 @@ export class PDFToMarkdownService {
       let done = 0;
       const onFinish = () => {
         done++;
+        this.queueDone++;
+        this.statusDone(this.queueDone);
+        this.statusQueued(0);
         this.statusHeadline(
-          `PDF2MD ${outputFormat.toUpperCase()} ${done}/${jobs.length}`,
+          `PDF2MD ${outputFormat.toUpperCase()} ${this.queueDone}/${this.queueTotal}`,
         );
       };
 
@@ -320,7 +391,7 @@ export class PDFToMarkdownService {
       const ok = jobs.filter((j) => j.saved).length;
       const failed = jobs.length - ok;
       this.statusHeadline(
-        `PDF2MD: 完成 ${ok} 个${failed ? `, 失败 ${failed} 个` : ""}`,
+        `PDF2MD: 完成 ${this.queueDone}/${this.queueTotal}${failed ? `, 本批失败 ${failed} 个` : ""}`,
       );
     } catch (e) {
       this.log(`Conversion error: ${this.errorMessage(e)}\n${e?.stack || ""}`);
@@ -357,17 +428,26 @@ export class PDFToMarkdownService {
             skipped.push(`${this.label(item)}: 不是 PDF 附件`);
           }
         } else if (item.isRegularItem()) {
-          let found = 0;
-          for (const id of item.getAttachments()) {
-            const att = Zotero.Items.get(id);
-            if (!this.isPDFAttachment(att)) continue;
-            found++;
+          const pdfAttachments = item
+            .getAttachments()
+            .map((id) => Zotero.Items.get(id))
+            .filter((att) => this.isPDFAttachment(att));
+          const selectedAttachments = this.pickPDFsForRegularItem(
+            item,
+            pdfAttachments,
+            true,
+          );
+          for (const att of selectedAttachments) {
             if (!seen.has(att.id)) {
               seen.add(att.id);
               candidates.push({ att, parent: item, sourceItem: item });
             }
           }
-          if (!found) skipped.push(`${this.label(item)}: 没有 PDF 附件`);
+          if (!pdfAttachments.length) {
+            skipped.push(`${this.label(item)}: 没有 PDF 附件`);
+          } else if (!selectedAttachments.length) {
+            skipped.push(`${this.label(item)}: 已取消选择 PDF 附件`);
+          }
         } else {
           skipped.push(`${this.label(item)}: 不可转换`);
         }
@@ -406,7 +486,8 @@ export class PDFToMarkdownService {
           outputName,
           outputFormat,
           contentType: outputFormat === "html" ? "text/html" : "text/markdown",
-          dataId: `L${att.libraryID}-${att.key}`,
+          dataId: `L${att.libraryID}-${att.key || att.id}`,
+          progressKey: `${att.libraryID}-${att.id}-${outputFormat}`,
           finished: false,
           saved: false,
           errMsg: "",
@@ -416,6 +497,30 @@ export class PDFToMarkdownService {
       }
     }
     return { jobs, skipped };
+  }
+
+  private pickPDFsForRegularItem(
+    item: Zotero.Item,
+    attachments: Zotero.Item[],
+    shouldPrompt: boolean,
+  ): Zotero.Item[] {
+    if (attachments.length <= 1 || !shouldPrompt) return attachments;
+    const win = Zotero.getMainWindow() as ZoteroWindow | null;
+    if (!win) return attachments;
+    const labels = attachments.map((att, index) => {
+      const filename = String(att.attachmentFilename || "").trim();
+      const title = String(att.getField("title") || "").trim();
+      return `${index + 1}. ${filename || title || this.label(att)}`;
+    });
+    const selected = { value: 0 };
+    const ok = Services.prompt.select(
+      win,
+      "选择要解析的 PDF",
+      `${this.label(item)} 包含多个 PDF,请选择一个:`,
+      labels,
+      selected,
+    );
+    return ok ? [attachments[selected.value]] : [];
   }
 
   private async processBatch(
@@ -1161,6 +1266,31 @@ export class PDFToMarkdownService {
     });
   }
 
+  private estimateJobs(items: Zotero.Item[]): number {
+    const seen = new Set<number>();
+    for (const item of items) {
+      if (this.isPDFAttachment(item)) {
+        seen.add(item.id);
+      } else if (item.isRegularItem()) {
+        for (const id of item.getAttachments()) {
+          const att = Zotero.Items.get(id);
+          if (this.isPDFAttachment(att)) seen.add(att.id);
+        }
+      }
+    }
+    return Math.max(1, seen.size);
+  }
+
+  private enqueueSignature(
+    items: Zotero.Item[],
+    outputFormat: OutputFormat,
+  ): string {
+    return `${outputFormat}:${items
+      .map((item) => item.id)
+      .sort((a, b) => a - b)
+      .join(",")}`;
+  }
+
   private getSelectedItems(win: ZoteroWindow): Zotero.Item[] {
     return win.ZoteroPane.getSelectedItems();
   }
@@ -1240,98 +1370,79 @@ export class PDFToMarkdownService {
     status: string,
     kind?: "done" | "error",
   ): void {
+    if (kind !== "done") this.statusCurrent(job, status);
     this.statusLine(
-      job.dataId,
+      job.progressKey,
       `• ${this.short(job.pdfName)}: ${status}`,
       kind,
     );
   }
 
   private statusShow(headline: string): void {
-    const win = Zotero.getMainWindow() as ZoteroWindow | null;
-    if (!win) return;
+    this.progressState = {
+      headline,
+      note: "",
+      rows: new Map(),
+      total: 0,
+      done: 0,
+      queued: 0,
+      current: "",
+      currentStatus: "",
+      active: true,
+      minimized: false,
+    };
     this.statusCancelTimer();
-    let s = this.status;
-    if (!s || !s.el.isConnected || s.win !== win) {
-      s?.el.remove();
-      const doc = win.document;
-      const el = doc.createElementNS(HTML_NS, "div");
-      el.id = `${config.addonRef}-status`;
-      el.style.cssText =
-        "position:fixed;right:14px;bottom:14px;z-index:99999;background:canvas;" +
-        "color:canvastext;border:1px solid color-mix(in srgb, canvastext 25%, transparent);" +
-        "border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.3);padding:9px 12px;" +
-        "font:menu;max-width:360px;cursor:default;user-select:none;";
-      const headWrap = doc.createElementNS(HTML_NS, "div");
-      headWrap.style.cssText = "display:flex;align-items:center;gap:10px;";
-      const head = doc.createElementNS(HTML_NS, "div");
-      head.style.cssText =
-        "white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.5;font-weight:600;flex:1;";
-      const close = doc.createElementNS(HTML_NS, "div");
-      close.textContent = "x";
-      close.style.cssText = "cursor:pointer;opacity:.55;";
-      close.addEventListener("click", () => {
-        el.hidden = true;
-      });
-      headWrap.append(head, close);
-      const list = doc.createElementNS(HTML_NS, "div");
-      list.style.cssText = "max-height:40vh;overflow-y:auto;";
-      const note = doc.createElementNS(HTML_NS, "div");
-      note.style.cssText =
-        "white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.5;opacity:.65;";
-      note.hidden = true;
-      el.append(headWrap, list, note);
-      doc.documentElement.appendChild(el);
-      s = this.status = {
-        win,
-        el,
-        head,
-        list,
-        note,
-        rows: new Map(),
-        timer: null,
-      };
-    }
-    s.rows.clear();
-    s.list.replaceChildren();
-    s.note.hidden = true;
-    s.el.hidden = false;
-    s.head.textContent = headline;
+    this.renderProgressUI();
   }
 
   private statusHeadline(text: string): void {
-    if (this.status?.el.isConnected) this.status.head.textContent = text;
+    this.progressState.headline = text;
+    this.renderProgressUI();
   }
 
   private statusLine(key: string, text: string, kind?: "done" | "error"): void {
-    const s = this.status;
-    if (!s?.el.isConnected) return;
-    let row = s.rows.get(key);
-    if (!row) {
-      row = s.win.document.createElementNS(HTML_NS, "div");
-      row.style.cssText =
-        "white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.5;";
-      s.list.appendChild(row);
-      s.rows.set(key, row);
-    }
-    row.textContent = text;
-    row.style.color = kind === "error" ? "#e35d5d" : "";
-    row.style.opacity = kind === "done" ? ".65" : "";
+    this.progressState.rows.set(key, { text, kind });
+    this.renderProgressUI();
+  }
+
+  private statusTotal(total: number): void {
+    this.progressState.total = total;
+    this.renderProgressUI();
+  }
+
+  private statusDone(done: number): void {
+    this.progressState.done = done;
+    this.renderProgressUI();
+  }
+
+  private statusQueued(queued: number): void {
+    this.progressState.queued = Math.max(0, queued);
+    this.renderProgressUI();
+  }
+
+  private statusCurrent(job: ConversionJob, status: string): void {
+    this.progressState.current = this.short(job.pdfName, 42);
+    this.progressState.currentStatus = status;
+    this.renderProgressUI();
   }
 
   private statusNote(text: string): void {
-    if (!this.status?.el.isConnected) return;
-    this.status.note.textContent = text;
-    this.status.note.hidden = false;
+    this.progressState.note = text;
+    this.renderProgressUI();
   }
 
   private statusClose(delay: number): void {
+    this.progressState.active = false;
+    this.renderProgressUI();
+    this.statusCancelTimer();
     const s = this.status;
     if (!s) return;
-    this.statusCancelTimer();
     s.timer = s.win.setTimeout(() => {
       s.el.remove();
       if (this.status === s) this.status = null;
+      this.clearProgressState();
+      this.queueTotal = 0;
+      this.queueDone = 0;
     }, delay);
   }
 
@@ -1341,6 +1452,157 @@ export class PDFToMarkdownService {
       s.win.clearTimeout(s.timer);
       s.timer = null;
     }
+  }
+
+  private showCurrentProgress(): void {
+    if (!this.hasDisplayableProgress()) return;
+    this.progressState.minimized = false;
+    this.renderProgressUI();
+  }
+
+  private minimizeProgress(): void {
+    if (!this.hasDisplayableProgress()) return;
+    this.progressState.minimized = true;
+    this.renderProgressUI();
+  }
+
+  private hasDisplayableProgress(): boolean {
+    return (
+      !!this.progressState.headline ||
+      !!this.progressState.note ||
+      this.progressState.rows.size > 0
+    );
+  }
+
+  private clearProgressState(): void {
+    this.progressState = {
+      headline: "",
+      note: "",
+      rows: new Map(),
+      total: 0,
+      done: 0,
+      queued: 0,
+      current: "",
+      currentStatus: "",
+      active: false,
+      minimized: false,
+    };
+  }
+
+  private renderProgressUI(): void {
+    if (!this.hasDisplayableProgress()) return;
+    const win = Zotero.getMainWindow() as ZoteroWindow | null;
+    if (!win) return;
+    const doc = win.document;
+    if (
+      !this.status ||
+      !this.status.el.isConnected ||
+      this.status.win !== win
+    ) {
+      this.status?.el.remove();
+      const el = doc.createElementNS(HTML_NS, "div");
+      el.id = `${config.addonRef}-status`;
+      doc.documentElement.appendChild(el);
+      this.status = { win, el, timer: null };
+    }
+
+    const s = this.status;
+    s.el.replaceChildren();
+    s.el.hidden = false;
+    if (this.progressState.minimized) {
+      this.renderProgressPill(s);
+    } else {
+      this.renderProgressPanel(s);
+    }
+  }
+
+  private renderProgressPill(s: StatusBox): void {
+    s.el.style.cssText =
+      "position:fixed;right:14px;bottom:14px;z-index:99999;background:canvas;" +
+      "color:canvastext;border:1px solid color-mix(in srgb, canvastext 25%, transparent);" +
+      "border-radius:999px;box-shadow:0 2px 10px rgba(0,0,0,.3);padding:7px 11px;" +
+      "font:menu;max-width:300px;cursor:pointer;user-select:none;";
+    const label = s.win.document.createElementNS(HTML_NS, "div");
+    label.style.cssText =
+      "white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.4;font-weight:600;";
+    label.textContent = this.progressTitle();
+    s.el.appendChild(label);
+    s.el.onclick = () => this.showCurrentProgress();
+  }
+
+  private renderProgressPanel(s: StatusBox): void {
+    s.el.onclick = null;
+    s.el.style.cssText =
+      "position:fixed;right:14px;bottom:14px;z-index:99999;background:canvas;" +
+      "color:canvastext;border:1px solid color-mix(in srgb, canvastext 25%, transparent);" +
+      "border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.3);padding:9px 12px;" +
+      "font:menu;max-width:360px;cursor:default;user-select:none;";
+    const doc = s.win.document;
+    const headWrap = doc.createElementNS(HTML_NS, "div");
+    headWrap.style.cssText = "display:flex;align-items:center;gap:10px;";
+    const head = doc.createElementNS(HTML_NS, "div");
+    head.style.cssText =
+      "white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.5;font-weight:600;flex:1;";
+    head.textContent = this.progressTitle();
+    const close = doc.createElementNS(HTML_NS, "div");
+    close.textContent = "x";
+    close.style.cssText = "cursor:pointer;opacity:.55;";
+    close.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      this.minimizeProgress();
+    });
+    headWrap.append(head, close);
+    s.el.appendChild(headWrap);
+
+    const list = doc.createElementNS(HTML_NS, "div");
+    list.style.cssText =
+      "display:block;max-height:40vh;overflow-y:auto;white-space:pre-line;line-height:1.5;";
+    list.textContent = this.progressSummaryText();
+    s.el.appendChild(list);
+
+    if (this.progressState.note) {
+      const note = doc.createElementNS(HTML_NS, "div");
+      note.style.cssText =
+        "white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.5;opacity:.65;";
+      note.textContent = this.progressState.note;
+      s.el.appendChild(note);
+    }
+  }
+
+  private progressSummaryText(): string {
+    const total = this.progressState.total || this.progressState.rows.size;
+    const done = this.progressState.done;
+    const remaining = Math.max(0, total - done);
+    const lines = [];
+    if (this.progressState.current) {
+      lines.push(
+        `当前任务: ${this.progressState.current}` +
+          (this.progressState.currentStatus
+            ? ` (${this.progressState.currentStatus})`
+            : ""),
+      );
+    }
+    if (total) {
+      lines.push(`剩余任务: ${remaining} / ${total}`);
+    }
+    if (!lines.length) {
+      lines.push(
+        [...this.progressState.rows.values()]
+          .map((row) => row.text)
+          .join("\n") || "暂无任务进度",
+      );
+    }
+    return lines.join("\n");
+  }
+
+  private progressTitle(): string {
+    if (!this.progressState.active || !this.progressState.total) {
+      return this.progressState.headline || "PDF2MD";
+    }
+    const total = this.progressState.total;
+    const prefix =
+      this.progressState.headline.replace(/\s+\d+\/\d+$/, "") || "PDF2MD";
+    return `${prefix} ${this.progressState.done}/${total}`;
   }
 
   private toast(lines: string[], duration = 4000): void {

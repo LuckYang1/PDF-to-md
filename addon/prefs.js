@@ -9,6 +9,6 @@ pref("exportDir", "");
 pref("exportPerItem", false);
 pref("exportLastType", "");
 pref("useLocalApi", false);
-pref("localApiUrl", "http://192.168.196.101:8002");
+pref("localApiUrl", "http://127.0.0.1:8002");
 pref("localApiType", "router");
 pref("localRouterConcurrency", 2);

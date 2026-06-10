@@ -45,8 +45,8 @@ export async function renderMarkdownZipToHTML(
   ].createInstance(Components.interfaces.nsIZipReader);
   zr.open(Zotero.File.pathToFile(zipPath));
   try {
-    const mdEntry = findZipEntry(zr, /(^|\/)(full|paper)\.md$/i);
-    if (!mdEntry) throw new Error("MinerU result zip did not contain full.md");
+    const mdEntry = findMarkdownEntry(zr);
+    if (!mdEntry) throw new Error("MinerU result zip did not contain markdown");
     const markdown = await readZipTextEntry(zr, mdEntry);
     if (!markdown.trim()) throw new Error("MinerU markdown was empty");
     const imageMap = await buildMarkdownImageMap(zr, markdown);
@@ -374,15 +374,20 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(parts.join(""));
 }
 
-function findZipEntry(zipReader: nsIZipReader, pattern: RegExp): string {
-  const entries = zipReader.findEntries("*");
-  while (entries.hasMore()) {
-    const entry = entries.getNext();
-    if (typeof entry === "string" && pattern.test(entry.replace(/\\/g, "/"))) {
-      return entry;
-    }
+function findMarkdownEntry(zipReader: nsIZipReader): string {
+  const entries: string[] = [];
+  const zipEntries = zipReader.findEntries("*");
+  while (zipEntries.hasMore()) {
+    const entry = zipEntries.getNext();
+    if (typeof entry !== "string") continue;
+    const normalized = entry.replace(/\\/g, "/");
+    if (normalized.toLowerCase().endsWith(".md")) entries.push(entry);
   }
-  return "";
+  return (
+    entries.find((entry) => /(^|\/)(full|paper)\.md$/i.test(entry)) ||
+    entries.find((entry) => !/(^|\/)__macosx\//i.test(entry)) ||
+    ""
+  );
 }
 
 async function readZipTextEntry(
