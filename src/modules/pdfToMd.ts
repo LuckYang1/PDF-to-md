@@ -118,6 +118,11 @@ export class PDFToMarkdownService {
     const parent = doc.createXULElement("menu");
     parent.id = `${config.addonRef}-menu`;
     parent.setAttribute("label", "PDF to Markdown");
+    parent.setAttribute("class", "menu-iconic");
+    parent.style.setProperty(
+      "list-style-image",
+      `url("chrome://${config.addonRef}/content/icons/menu.svg")`,
+    );
 
     const popup = doc.createXULElement("menupopup");
     parent.appendChild(popup);
@@ -705,6 +710,11 @@ export class PDFToMarkdownService {
     });
     const zipPath = PathUtils.join(tmpDir, "result.zip");
     const outputPath = PathUtils.join(tmpDir, job.outputName);
+    const imagesDir = PathUtils.join(tmpDir, "images");
+    await IOUtils.makeDirectory(imagesDir, {
+      createAncestors: true,
+      ignoreExisting: true,
+    });
 
     const resp = await this.fetch(zipUrl, { method: "GET" });
     if (!resp.ok)
@@ -714,8 +724,14 @@ export class PDFToMarkdownService {
     if (job.outputFormat === "html") {
       await this.saveHTMLFromZip(job, zipPath, outputPath, tmpDir);
     } else {
-      await this.extractMarkdownFromZip(zipPath, outputPath);
-      await this.importAttachment(job, outputPath, tmpDir);
+      await this.extractMarkdownFromZip(zipPath, outputPath, imagesDir);
+      const hasImages = (await this.countFiles(imagesDir)) > 0;
+      const att = await this.importAttachment(job, outputPath, tmpDir, false);
+      if (hasImages) {
+        const copied = await this.copyCompanionImages(att, imagesDir);
+        this.log(`${job.pdfName}: copied ${copied} image(s) from token result`);
+      }
+      await this.removeTemp(tmpDir);
     }
   }
 
@@ -815,7 +831,7 @@ export class PDFToMarkdownService {
       while (entries.hasMore()) {
         const entry = entries.getNext();
         const normalized = String(entry).replace(/\\/g, "/");
-        if (normalized.includes("/images/")) imageEntries.push(entry);
+        if (this.isZipImageEntry(normalized)) imageEntries.push(entry);
         if (!normalized.toLowerCase().endsWith(".md")) continue;
         if (
           !mdEntry ||
@@ -1497,9 +1513,11 @@ export class PDFToMarkdownService {
   private zipImageRelativePath(entry: string): string {
     const normalized = entry.replace(/\\/g, "/");
     const marker = "/images/";
-    const idx = normalized.indexOf(marker);
-    if (idx < 0) return "";
-    const rel = normalized.slice(idx + marker.length).replace(/^\/+/, "");
+    const rel = normalized.startsWith("images/")
+      ? normalized.slice("images/".length)
+      : normalized.includes(marker)
+        ? normalized.slice(normalized.indexOf(marker) + marker.length)
+        : "";
     if (
       !rel ||
       rel.split("/").some((part) => !part || part === "." || part === "..")
@@ -1507,6 +1525,16 @@ export class PDFToMarkdownService {
       return "";
     }
     return rel;
+  }
+
+  private isZipImageEntry(entry: string): boolean {
+    const normalized = entry.replace(/\\/g, "/").toLowerCase();
+    if (
+      !(normalized.startsWith("images/") || normalized.includes("/images/"))
+    ) {
+      return false;
+    }
+    return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(normalized);
   }
 
   private async copyCompanionImages(

@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <style>
+    .line {
+      fill: none;
+      stroke: #6f7782;
+      stroke-width: 1.35;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .accent {
+      fill: none;
+      stroke: #cc2936;
+      stroke-width: 1.35;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    @media (prefers-color-scheme: dark) {
+      .line {
+        stroke: #c8cdd3;
+      }
+    }
+  </style>
+  <path class="line" d="M4.5 2.5h5L12.5 5.5v8h-8z" />
+  <path class="line" d="M9.5 2.5v3h3" />
+  <path class="line" d="M6.25 8.25h3.5M6.25 10.5h2.25" />
+  <path class="accent" d="M2.5 5.25h4" />
+  <path class="accent" d="M5.25 4l1.25 1.25-1.25 1.25" />
+</svg>
