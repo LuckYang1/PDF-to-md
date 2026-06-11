@@ -260,7 +260,8 @@ function renderInline(text: string, imageMap: ImageMap): string {
   );
   out = out.replace(
     /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
-    '<a href="$2">$1</a>',
+    (_m, label, href) =>
+      `<a href="${escapeAttribute(href)}" rel="noopener noreferrer">${label}</a>`,
   );
   out = out.replace(/`([^`]+)`/g, "<code>$1</code>");
   out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");

@@ -126,7 +126,7 @@ export class PDFToMarkdownService {
       pluginID: config.addonID,
       src: rootURI + "content/preferences.xhtml",
       label: "PDF to Markdown",
-      image: `chrome://${config.addonRef}/content/icons/favicon.png`,
+      image: `chrome://${config.addonRef}/content/icons/pdf-to-md-zotero-icon2.svg`,
     });
   }
 
@@ -147,7 +147,7 @@ export class PDFToMarkdownService {
     parent.setAttribute("class", "menu-iconic");
     parent.style.setProperty(
       "list-style-image",
-      `url("chrome://${config.addonRef}/content/icons/menu.svg")`,
+      `url("chrome://${config.addonRef}/content/icons/pdf-to-md-zotero-icon2.svg")`,
     );
 
     const popup = doc.createXULElement("menupopup");

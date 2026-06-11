@@ -1,4 +1,5 @@
 .vscode
+.rumdl_cache
 build
 logs
 node_modules
