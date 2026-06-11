@@ -47,11 +47,14 @@
     "@zotero-plugin/eslint-config": "^0.6.7",
     "chai": "^6.2.1",
     "eslint": "^9.39.2",
-    "mocha": "^11.7.5",
+    "mocha": "^11.3.0",
     "prettier": "^3.7.4",
     "typescript": "^5.9.3",
     "zotero-plugin-scaffold": "^0.8.2",
     "zotero-types": "^4.1.0-beta.4"
+  },
+  "overrides": {
+    "serialize-javascript": "7.0.5"
   },
   "prettier": {
     "printWidth": 80,

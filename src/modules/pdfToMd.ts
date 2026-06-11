@@ -1672,7 +1672,7 @@ export class PDFToMarkdownService {
   }
 
   private sanitize(name: string): string {
-    let out = "";
+    let out: string;
     try {
       out = Zotero.File.getValidFileName(name);
     } catch {

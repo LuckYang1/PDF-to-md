@@ -16,4 +16,5 @@ jobs:
     with:
       build: "npm run build"
       release: "npm run release"
+      comment-template: ""
     secrets: inherit
