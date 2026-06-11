@@ -4,85 +4,147 @@
   <img src="addon/content/icons/pdf-to-md-zotero-icon.svg" alt="PDF to Markdown icon" width="128" height="128">
 </p>
 
-Zotero 插件：把 Zotero 条目中的 PDF 附件转换为 Markdown 或 HTML，并支持导出附件文件。
+<p align="center">
+  <a href="https://github.com/LuckYang1/PDF-to-md/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/LuckYang1/PDF-to-md/ci.yml?branch=main&label=CI" alt="CI"></a>
+  <a href="https://github.com/LuckYang1/PDF-to-md/releases"><img src="https://img.shields.io/github/v/release/LuckYang1/PDF-to-md?label=Release" alt="Release"></a>
+  <a href="https://github.com/LuckYang1/PDF-to-md/blob/main/LICENSE"><img src="https://img.shields.io/github/license/LuckYang1/PDF-to-md" alt="License"></a>
+  <img src="https://img.shields.io/badge/Zotero-7%2B-red" alt="Zotero 7+">
+  <img src="https://img.shields.io/badge/MinerU-supported-blue" alt="MinerU supported">
+</p>
 
-转换由 MinerU 完成，支持三种模式：
+<!-- README-I18N:START -->
 
-- Token API：填写 MinerU API Token 后走 `https://mineru.net/api/v4`。
-- 轻量模式：未填写 Token 且未启用本地 API 时使用 MinerU 轻量接口。
-- 本地 API：启用后走本地 MinerU API / Router，默认地址为 `http://127.0.0.1:8002`。
+**English** | [中文](./doc/README-zhCN.md)
 
-## 功能
+<!-- README-I18N:END -->
 
-- 右键条目或 PDF 附件，通过 `PDF to Markdown` 子菜单执行操作。
-- 支持 `转换为 Markdown (MinerU)` 和 `转换为 HTML (MinerU)`。
-- 普通条目下有多个 PDF 时，会弹窗选择具体要解析的 PDF。
-- 转换结果作为 Zotero 附件保存到原条目下。
-- Markdown 结果会复制配套 `images/` 目录，保持相对图片链接可用。
-- HTML 结果优先从 MinerU ZIP 中的 Markdown 生成，并把图片嵌入为 data URL。
-- 支持新增 PDF 自动转换为 Markdown。
-- 支持导出附件到默认目录或临时选择目录。
-- 右下角显示转换进度，支持最小化和从右键菜单恢复。
+PDF to Markdown is a Zotero plugin that converts PDF attachments in Zotero
+items to Markdown or HTML, with optional attachment export.
 
-## 安装和开发
+Conversion is powered by MinerU and supports three modes:
 
-本仓库基于 `zotero-plugin-scaffold`。
+- Token API: use `https://mineru.net/api/v4` after entering a MinerU API Token.
+- Light mode: use the MinerU light API when no token is configured and local API
+  mode is disabled.
+- Local API: use a local MinerU API / Router. The default Router address is
+  `http://127.0.0.1:8002`.
 
-首次安装依赖：
+## MinerU Resources
+
+- Local deployment:
+  [MinerU README_zh-CN.md](https://github.com/opendatalab/MinerU/blob/master/README_zh-CN.md).
+- API application and documentation:
+  [MinerU API Manage Docs](https://mineru.net/apiManage/docs).
+
+## Tags
+
+`zotero` `zotero-plugin` `pdf` `markdown` `html` `mineru` `auto-update`
+
+## Features
+
+- Run actions from the `PDF to Markdown` submenu on Zotero items or PDF
+  attachments.
+- Convert PDFs to Markdown with `Convert to Markdown (MinerU)`.
+- Convert PDFs to HTML with `Convert to HTML (MinerU)`.
+- Choose a specific PDF when a Zotero item contains multiple PDF attachments.
+- Save conversion results back to the original Zotero item as attachments.
+- Keep Markdown image links usable by copying the companion `images/` folder.
+- Build HTML from MinerU ZIP Markdown first, then embed images as data URLs.
+- Automatically convert newly added PDFs to Markdown.
+- Export attachments to the default output folder or a temporary folder chosen at
+  runtime.
+- Show conversion progress in a bottom-right panel, with minimize and restore
+  support from the context menu.
+
+## Installation and Development
+
+This repository is based on `zotero-plugin-scaffold`.
+
+Install dependencies:
 
 ```powershell
 npm install
 ```
 
-开发启动：
+Start development mode:
 
 ```powershell
 npm start
 ```
 
-当前本地 `.env` 可指向独立 Zotero 开发 profile。模板文件为 `.env.example`。
+The local `.env` file can point to an isolated Zotero development profile. Use
+`.env.example` as the template.
 
-构建 XPI：
+Build the XPI:
 
 ```powershell
 npm run build
 ```
 
-构建产物位于：
+The build artifact is generated at:
 
 ```text
 .scaffold/build/pdf-to-markdown.xpi
 ```
 
-静态检查：
+Run static checks:
 
 ```powershell
 npm run lint:check
 ```
 
-## 设置
+## Auto Update and Releases
 
-在 Zotero 设置页中打开 `PDF to Markdown`：
+The plugin manifest includes an update URL generated at build time:
 
-- `API Token`：MinerU Token；留空时可走轻量模式。
-- `模型`：`vlm` 或 `pipeline`。
-- `语言`：默认 `ch`，英文可填 `en`。
-- `公式识别`、`表格识别`、`强制 OCR`：同时用于 Token、轻量和本地 API 模式。
-- `使用本地 MinerU API`：启用后不会上传到 mineru.net。
-- `API 地址`：Router 默认 `http://127.0.0.1:8002`，直连 API 通常为 `http://127.0.0.1:8000`。
-- `Router 并发`：本地 Router 模式并发数，默认 `2`。
-- `默认文件夹`：附件导出的默认目录。
+```text
+https://github.com/LuckYang1/PDF-to-md/releases/download/release/update.json
+```
 
-## 代码结构
+Publishing a `v*` tag triggers the GitHub Actions release workflow. The workflow
+builds the XPI, publishes it to the versioned GitHub Release, and refreshes the
+`update.json` asset on the fixed `release` tag so Zotero can discover updates.
 
-- `src/modules/pdfToMd.ts`：菜单、队列、转换流程、进度面板、附件导出。
-- `src/modules/renderHtml.ts`：Markdown / MinerU ZIP 到 HTML 的基础渲染。
-- `addon/content/preferences.xhtml`：Zotero 偏好设置页。
-- `addon/prefs.js`：默认偏好值。
-- `addon/locale/*`：中英文界面文案。
+Example:
 
-## 注意
+```powershell
+git tag v0.1.1
+git push origin v0.1.1
+```
 
-- 插件 ID 为 `pdf-to-md@local`，偏好前缀为 `extensions.zotero.pdftomd`。
-- 当前 manifest 支持 Zotero `6.999` 到 `9.*`。
-- 旧的 Zotero 插件模板示例代码已经删除。
+## Settings
+
+Open `PDF to Markdown` in Zotero preferences:
+
+- `API Token`: MinerU Token. Leave it empty to use light mode.
+- `Model`: `vlm` or `pipeline`.
+- `Language`: default is `ch`; use `en` for English.
+- `Formula recognition`, `Table recognition`, and `Force OCR`: shared by Token,
+  light, and local API modes.
+- `Use local MinerU API`: when enabled, files are not uploaded to mineru.net.
+- `API URL`: Router default is `http://127.0.0.1:8002`; direct API is commonly
+  `http://127.0.0.1:8000`.
+- `Router concurrency`: local Router concurrency. Default is `2`.
+- `Default folder`: default output folder for attachment export.
+
+## Project Structure
+
+- `src/modules/pdfToMd.ts`: menus, queue, conversion flow, progress panel, and
+  attachment export.
+- `src/modules/renderHtml.ts`: basic rendering from Markdown / MinerU ZIP to
+  HTML.
+- `addon/content/preferences.xhtml`: Zotero preferences page.
+- `addon/prefs.js`: default preference values.
+- `addon/locale/*`: English and Chinese UI strings.
+
+## Notes
+
+- Plugin ID: `pdf-to-md@local`.
+- Preference prefix: `extensions.zotero.pdftomd`.
+- Current manifest supports Zotero `6.999` to `9.*`.
+- The original `zotero-plugin-template` sample code has been removed.
+
+## License
+
+This project is licensed under the
+[AGPL-3.0-or-later](./LICENSE) license.

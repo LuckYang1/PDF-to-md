@@ -3,6 +3,14 @@
   "type": "module",
   "version": "0.1.0",
   "description": "Export Zotero PDF attachments to Markdown.",
+  "keywords": [
+    "zotero",
+    "zotero-plugin",
+    "pdf",
+    "markdown",
+    "html",
+    "mineru"
+  ],
   "config": {
     "addonName": "PDF to Markdown",
     "addonID": "pdf-to-md@local",
@@ -12,13 +20,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/local/pdf-to-md.git"
+    "url": "git+https://github.com/LuckYang1/PDF-to-md.git"
   },
   "author": "YSY",
   "bugs": {
-    "url": "https://github.com/local/pdf-to-md/issues"
+    "url": "https://github.com/LuckYang1/PDF-to-md/issues"
   },
-  "homepage": "https://github.com/local/pdf-to-md#readme",
+  "homepage": "https://github.com/LuckYang1/PDF-to-md#readme",
   "license": "AGPL-3.0-or-later",
   "scripts": {
     "start": "zotero-plugin serve",
