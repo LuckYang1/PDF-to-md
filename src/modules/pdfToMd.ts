@@ -1115,6 +1115,24 @@ export class PDFToMarkdownService {
           PathUtils.join(destDir, PathUtils.filename(path)),
         );
         await IOUtils.copy(path, dest);
+        const isMarkdown =
+          att.attachmentContentType === "text/markdown" || /\.md$/i.test(path);
+        if (isMarkdown) {
+          const imagesDir = PathUtils.join(PathUtils.parent(path), "images");
+          if (await IOUtils.exists(imagesDir)) {
+            const destImagesDir = PathUtils.join(
+              PathUtils.parent(dest),
+              "images",
+            );
+            await IOUtils.makeDirectory(destImagesDir, {
+              createAncestors: true,
+              ignoreExisting: true,
+            });
+            // ponytail: flat exports share images/; namespace and rewrite links
+            // if filenames collide.
+            await this.copyDirectoryFiles(imagesDir, destImagesDir);
+          }
+        }
         copied++;
       } catch (e) {
         errors.push(`${PathUtils.filename(path)}: ${this.errorMessage(e)}`);
