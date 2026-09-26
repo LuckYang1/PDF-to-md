@@ -25,8 +25,8 @@ Markdown 或 HTML，并支持导出附件文件。
 
 - Token API：填写 MinerU API Token 后走 `https://mineru.net/api/v4`。
 - 轻量模式：未填写 Token 且未启用本地 API 时使用 MinerU 轻量接口。
-- 本地 API：启用后走本地 MinerU API / Router，默认 Router 地址为
-  `http://127.0.0.1:8002`。
+- 本地 API：通过 MinerU 4.0 V1 API / Router 上传、解析并下载含图片的 ZIP。
+  默认 Router 地址为 `http://127.0.0.1:8002`。
 
 [下载最新版 XPI](https://github.com/LuckYang1/PDF-to-md/releases/download/v0.1.0/pdf-to-markdown.xpi)
 | [查看 Release](https://github.com/LuckYang1/PDF-to-md/releases/latest)
@@ -49,7 +49,8 @@ Markdown 或 HTML，并支持导出附件文件。
 - 支持 `转换为 HTML (MinerU)`。
 - 普通条目下有多个 PDF 时，会弹窗选择具体要解析的 PDF。
 - 转换结果作为 Zotero 附件保存到原条目下。
-- Markdown 结果会复制配套 `images/` 目录，保持相对图片链接可用。
+- Markdown 结果会复制配套 `images/` 目录；导出附件时也会带出图片，
+  多份 Markdown 平铺导出时为每份文件使用独立图片子目录。
 - HTML 结果优先从 MinerU ZIP 中的 Markdown 生成，并把图片嵌入为 data URL。
 - 支持新增 PDF 自动转换为 Markdown。
 - 支持导出附件到默认目录或临时选择目录。
@@ -132,10 +133,12 @@ git push origin v0.1.1
 - `API Token`：MinerU Token；留空时可走轻量模式。
 - `模型`：`vlm` 或 `pipeline`。
 - `语言`：默认 `ch`，英文可填 `en`。
-- `公式识别`、`表格识别`、`强制 OCR`：同时用于 Token、轻量和本地 API 模式。
+- `公式识别`、`表格识别`、`强制 OCR`：用于 Token 和轻量模式。
+  MinerU 4.0 本地 API 使用 Standard 档位。
 - `使用本地 MinerU API`：启用后不会上传到 mineru.net。
 - `API 地址`：Router 默认 `http://127.0.0.1:8002`，直连 API 通常为
-  `http://127.0.0.1:8000`。
+  `http://127.0.0.1:8000`；远程部署应填写远程主机地址。地址末尾不含 `/v1`。
+- `API Key`：本地 V1 服务启用鉴权时填写；未启用时留空。
 - `Router 并发`：本地 Router 模式并发数，默认 `2`。
 - `默认文件夹`：附件导出的默认目录。
 

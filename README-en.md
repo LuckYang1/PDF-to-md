@@ -26,8 +26,8 @@ Conversion is powered by MinerU and supports three modes:
 - Token API: use `https://mineru.net/api/v4` after entering a MinerU API Token.
 - Light mode: use the MinerU light API when no token is configured and local API
   mode is disabled.
-- Local API: use a local MinerU API / Router. The default Router address is
-  `http://127.0.0.1:8002`.
+- Local API: use MinerU 4.0 V1 API / Router to upload, parse, and download a
+  ZIP with images. The default Router address is `http://127.0.0.1:8002`.
 
 [Download latest XPI](https://github.com/LuckYang1/PDF-to-md/releases/download/v0.1.0/pdf-to-markdown.xpi)
 | [View Releases](https://github.com/LuckYang1/PDF-to-md/releases/latest)
@@ -52,6 +52,8 @@ Conversion is powered by MinerU and supports three modes:
 - Choose a specific PDF when a Zotero item contains multiple PDF attachments.
 - Save conversion results back to the original Zotero item as attachments.
 - Keep Markdown image links usable by copying the companion `images/` folder.
+  Attachment export includes images and uses a separate image subfolder for
+  each Markdown file when exporting to one directory.
 - Build HTML from MinerU ZIP Markdown first, then embed images as data URLs.
 - Automatically convert newly added PDFs to Markdown.
 - Export attachments to the default output folder or a temporary folder chosen at
@@ -138,11 +140,13 @@ Open `PDF to Markdown` in Zotero preferences:
 - `API Token`: MinerU Token. Leave it empty to use light mode.
 - `Model`: `vlm` or `pipeline`.
 - `Language`: default is `ch`; use `en` for English.
-- `Formula recognition`, `Table recognition`, and `Force OCR`: shared by Token,
-  light, and local API modes.
+- `Formula recognition`, `Table recognition`, and `Force OCR`: used by Token and
+  light modes. Local MinerU 4.0 uses the Standard tier.
 - `Use local MinerU API`: when enabled, files are not uploaded to mineru.net.
 - `API URL`: Router default is `http://127.0.0.1:8002`; direct API is commonly
-  `http://127.0.0.1:8000`.
+  `http://127.0.0.1:8000`. Use the remote host address for a remote deployment;
+  omit `/v1` at the end.
+- `API key`: fill this in if the local V1 service requires authentication.
 - `Router concurrency`: local Router concurrency. Default is `2`.
 - `Default folder`: default output folder for attachment export.
 

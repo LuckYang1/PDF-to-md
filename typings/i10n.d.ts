@@ -20,6 +20,7 @@ export type FluentMessageId =
   | 'pref-help'
   | 'pref-is-ocr'
   | 'pref-language'
+  | 'pref-local-api-key'
   | 'pref-local-api-type'
   | 'pref-local-api-type-direct'
   | 'pref-local-api-type-router'

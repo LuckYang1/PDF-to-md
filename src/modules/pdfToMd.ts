@@ -696,101 +696,111 @@ export class PDFToMarkdownService {
   }
 
   private async processLocalApi(job: ConversionJob): Promise<void> {
-    try {
-      this.setLine(job, "上传中");
-      const apiUrl = this.localApiUrl();
-      const bytes = await IOUtils.read(job.path);
-      const formData = this.localFormData(bytes, job.pdfName);
-      formData.append("backend", "pipeline");
-      formData.append("lang_list", String(getPref("language") || "ch"));
-      formData.append("parse_method", getPref("isOcr") ? "ocr" : "auto");
-      formData.append("formula_enable", String(!!getPref("enableFormula")));
-      formData.append("table_enable", String(!!getPref("enableTable")));
-      formData.append("image_analysis", "true");
-      formData.append("return_md", "true");
-      formData.append("return_middle_json", "true");
-      formData.append("return_model_output", "false");
-      formData.append("return_content_list", "true");
-      formData.append("return_images", "true");
-      formData.append("response_format_zip", "true");
-
-      const resp = await this.fetchWithTimeout(
-        `${apiUrl}/file_parse`,
-        { method: "POST", body: formData },
-        LOCAL_API_TIMEOUT,
-      );
-      if (!resp.ok) throw new Error(`local API HTTP ${resp.status}`);
-      if (this.responseLooksLikeJSON(resp)) {
-        throw new Error("local API returned JSON, expected ZIP");
-      }
-      await this.saveLocalZipResult(job, resp);
-      job.saved = true;
-      this.setLine(job, "完成", "done");
-    } catch (e) {
-      job.errMsg = this.errorMessage(e);
-      this.setLine(job, this.short(job.errMsg, 40), "error");
-    } finally {
-      job.finished = true;
-    }
+    await this.processLocalV1(job, LOCAL_API_TIMEOUT);
   }
 
   private async processLocalRouter(job: ConversionJob): Promise<void> {
+    await this.processLocalV1(job, LOCAL_ROUTER_TIMEOUT);
+  }
+
+  private async processLocalV1(
+    job: ConversionJob,
+    pollTimeout: number,
+  ): Promise<void> {
     try {
       this.setLine(job, "上传中");
       const apiUrl = this.localApiUrl();
       const bytes = await IOUtils.read(job.path);
-      const formData = this.localFormData(bytes, job.pdfName);
-      formData.append("backend", "hybrid-auto-engine");
-      formData.append("lang_list", String(getPref("language") || "ch"));
-      formData.append("parse_method", getPref("isOcr") ? "ocr" : "auto");
-      formData.append("formula_enable", String(!!getPref("enableFormula")));
-      formData.append("table_enable", String(!!getPref("enableTable")));
-      formData.append("image_analysis", "true");
-      formData.append("return_md", "true");
-      formData.append("return_middle_json", "true");
-      formData.append("return_content_list", "true");
-      formData.append("return_images", "true");
-      formData.append("response_format_zip", "true");
+      const auth = this.localApiHeaders();
+      const upload = await this.localV1JSON(`${apiUrl}/v1/uploads`, {
+        method: "POST",
+        headers: { ...auth, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: job.pdfName,
+          bytes: bytes.length,
+          mime_type: "application/pdf",
+          purpose: "parse",
+          sha256sum: this.sha256Hex(bytes),
+        }),
+      });
+      let fileId = upload?.file?.id;
+      if (upload.status === "pending") {
+        const uploadUrl = new URL(upload.upload_url, `${apiUrl}/`).href;
+        const sameOrigin = new URL(uploadUrl).origin === new URL(apiUrl).origin;
+        const uploadResp = await this.fetchWithTimeout(
+          uploadUrl,
+          {
+            method: upload.upload_method || "PUT",
+            headers: {
+              ...(upload.upload_headers || {}),
+              ...(sameOrigin ? auth : {}),
+            },
+            body: bytes,
+          },
+          LOCAL_API_TIMEOUT,
+        );
+        if (!uploadResp.ok)
+          throw new Error(`upload bytes HTTP ${uploadResp.status}`);
+        const completed = await this.localV1JSON(
+          `${apiUrl}/v1/uploads/${encodeURIComponent(upload.id)}/complete`,
+          {
+            method: "POST",
+            headers: { ...auth, "Content-Type": "application/json" },
+            body: "{}",
+          },
+        );
+        fileId = completed?.file?.id;
+      }
+      if (!fileId) throw new Error("upload returned no file id");
 
-      const submitResp = await this.fetchWithTimeout(
-        `${apiUrl}/tasks`,
-        { method: "POST", body: formData },
-        60000,
-      );
-      if (!submitResp.ok)
-        throw new Error(`router submit HTTP ${submitResp.status}`);
-      const taskJson = await submitResp.json();
-      const taskId = taskJson.task_id;
-      if (!taskId) throw new Error("router returned no task_id");
+      const submitted = await this.localV1JSON(`${apiUrl}/v1/parse/jobs`, {
+        method: "POST",
+        headers: { ...auth, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          files: [{ source: { type: "file_id", file_id: fileId } }],
+          tier: "standard",
+          output_formats: ["zip"],
+        }),
+      });
+      const taskId = submitted?.job_id;
+      if (!taskId) throw new Error("V1 API returned no job_id");
       this.setLine(job, "排队中");
 
       const start = Date.now();
+      let result = submitted;
       while (addon.data.alive) {
-        if (Date.now() - start > LOCAL_ROUTER_TIMEOUT) {
-          throw new Error("router timed out");
+        const status = String(result?.status || "").toLowerCase();
+        if (["completed", "partial", "failed", "canceled"].includes(status))
+          break;
+        if (Date.now() - start > pollTimeout) {
+          throw new Error(`V1 API timed out (job_id: ${taskId})`);
         }
         await Zotero.Promise.delay(LOCAL_ROUTER_POLL);
-        const pollResp = await this.fetch(`${apiUrl}/tasks/${taskId}`);
-        if (!pollResp.ok) continue;
-        const pollJson = await pollResp.json();
-        const status = String(pollJson.status || "").toLowerCase();
-        if (status === "completed") break;
-        if (status === "failed" || status === "error") {
-          throw new Error(`router task ${status}`);
-        }
-        this.setLine(job, status === "processing" ? "解析中" : "排队中");
+        result = await this.localV1JSON(
+          `${apiUrl}/v1/parse/jobs/${encodeURIComponent(taskId)}`,
+          { method: "GET", headers: auth },
+        );
+        this.setLine(job, result?.status === "running" ? "解析中" : "排队中");
       }
-
+      if (!addon.data.alive) throw new Error("插件已停止");
+      const parsed = result?.files?.[0];
+      if (parsed?.status !== "completed") {
+        throw new Error(
+          parsed?.error?.message || `V1 API job ${result?.status || "unknown"}`,
+        );
+      }
+      const zipId = parsed?.output_files?.zip?.file_id;
+      if (!zipId) throw new Error("V1 API returned no ZIP artifact");
       this.setLine(job, "保存中");
       const resultResp = await this.fetchWithTimeout(
-        `${apiUrl}/tasks/${taskId}/result`,
-        { method: "GET" },
+        `${apiUrl}/v1/files/${encodeURIComponent(zipId)}/content`,
+        { method: "GET", headers: auth },
         LOCAL_API_TIMEOUT,
       );
       if (!resultResp.ok)
-        throw new Error(`router result HTTP ${resultResp.status}`);
+        throw new Error(`V1 API ZIP HTTP ${resultResp.status}`);
       if (this.responseLooksLikeJSON(resultResp)) {
-        throw new Error("router returned JSON, expected ZIP");
+        throw new Error("V1 API returned JSON, expected ZIP");
       }
       await this.saveLocalZipResult(job, resultResp);
       job.saved = true;
@@ -1097,7 +1107,7 @@ export class PDFToMarkdownService {
     const perItem = !!getPref("exportPerItem");
     let copied = 0;
     const errors: string[] = [];
-    for (const { att, path } of chosen) {
+    for (const { att, path, type } of chosen) {
       try {
         let destDir = dir;
         if (perItem) {
@@ -1114,7 +1124,44 @@ export class PDFToMarkdownService {
         const dest = await this.uniquePath(
           PathUtils.join(destDir, PathUtils.filename(path)),
         );
-        await IOUtils.copy(path, dest);
+        const sourceImages = PathUtils.join(PathUtils.parent(path), "images");
+        if (type === "md" && (await this.countFiles(sourceImages)) > 0) {
+          const imageRoot = PathUtils.join(destDir, "images");
+          await IOUtils.makeDirectory(imageRoot, {
+            ignoreExisting: true,
+            createAncestors: true,
+          });
+          const stem = PathUtils.filename(dest).replace(/\.md$/i, "");
+          const imageDest = await this.uniquePath(
+            PathUtils.join(imageRoot, stem),
+          );
+          await IOUtils.makeDirectory(imageDest, { createAncestors: true });
+          try {
+            await this.copyDirectoryFiles(sourceImages, imageDest);
+            const imageFolder = encodeURIComponent(
+              PathUtils.filename(imageDest),
+            );
+            const markdown = await IOUtils.readUTF8(path);
+            const rewritten = markdown
+              .replace(
+                /(!\[[^\]]*\]\(\s*<?)(?:\.\/)?images\//g,
+                `$1images/${imageFolder}/`,
+              )
+              .replace(
+                /(<img\b[^>]*\bsrc=["'])(?:\.\/)?images\//gi,
+                `$1images/${imageFolder}/`,
+              );
+            await IOUtils.writeUTF8(dest, rewritten);
+          } catch (e) {
+            await IOUtils.remove(imageDest, {
+              recursive: true,
+              ignoreAbsent: true,
+            });
+            throw e;
+          }
+        } else {
+          await IOUtils.copy(path, dest);
+        }
         copied++;
       } catch (e) {
         errors.push(`${PathUtils.filename(path)}: ${this.errorMessage(e)}`);
@@ -1169,27 +1216,24 @@ export class PDFToMarkdownService {
       ).trim();
       const apiUrl = rawUrl.replace(/\/+$/, "");
       if (!apiUrl) throw new Error("请先填写 API 地址");
-      let resp = await (win as Window).fetch(`${apiUrl}/health`, {
+      const keyInput = win.document.getElementById(
+        `zotero-prefpane-${config.addonRef}-local-api-key`,
+      ) as HTMLInputElement | null;
+      const key = String(
+        keyInput?.value || getPref("localApiKey") || "",
+      ).trim();
+      const resp = await (win as Window).fetch(`${apiUrl}/v1/health`, {
         method: "GET",
+        headers: key ? { Authorization: `Bearer ${key}` } : {},
       });
-      if (!resp.ok) {
-        resp = await (win as Window).fetch(`${apiUrl}/openapi.json`, {
-          method: "GET",
-        });
-      }
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       let data: any = null;
       try {
         data = await resp.json();
       } catch {}
-      const servers = Array.isArray(data?.servers) ? data.servers : [];
-      const healthy = servers.filter((s: any) => s?.healthy).length;
-      setStatus(
-        servers.length
-          ? `连接正常: ${healthy}/${servers.length} 个 worker 可用`
-          : "连接正常",
-        true,
-      );
+      if (!data || typeof data !== "object")
+        throw new Error("健康检查返回无效响应");
+      setStatus("V1 API 连接正常", true);
     } catch (e) {
       setStatus(`测试失败: ${this.errorMessage(e)}`, false);
     } finally {
@@ -1744,19 +1788,37 @@ export class PDFToMarkdownService {
     return apiUrl;
   }
 
-  private localFormData(bytes: Uint8Array, filename: string): FormData {
-    const win = this.mainWindow();
-    const formData = new win.FormData();
-    const blob = new win.Blob([bytes], { type: "application/pdf" });
-    if (win.File) {
-      formData.append(
-        "files",
-        new win.File([blob], filename, { type: "application/pdf" }),
-      );
-    } else {
-      formData.append("files", blob, filename);
+  private localApiHeaders(): Record<string, string> {
+    const key = String(getPref("localApiKey") || "").trim();
+    return key ? { Authorization: `Bearer ${key}` } : {};
+  }
+
+  private async localV1JSON(url: string, opts: RequestInit): Promise<any> {
+    const resp = await this.fetchWithTimeout(url, opts, 60000);
+    let data: any;
+    try {
+      data = await resp.json();
+    } catch {
+      throw new Error(`V1 API HTTP ${resp.status}: invalid JSON`);
     }
-    return formData;
+    if (!resp.ok) {
+      const detail = data?.detail?.message || data?.detail || data?.message;
+      throw new Error(
+        `V1 API HTTP ${resp.status}${detail ? `: ${String(detail)}` : ""}`,
+      );
+    }
+    return data;
+  }
+
+  private sha256Hex(bytes: Uint8Array): string {
+    const hash = Components.classes[
+      "@mozilla.org/security/hash;1"
+    ].createInstance(Components.interfaces.nsICryptoHash);
+    hash.init(hash.SHA256);
+    hash.update(bytes, bytes.length);
+    return Array.from(hash.finish(false) as string, (char) =>
+      char.charCodeAt(0).toString(16).padStart(2, "0"),
+    ).join("");
   }
 
   private responseLooksLikeJSON(resp: Response): boolean {

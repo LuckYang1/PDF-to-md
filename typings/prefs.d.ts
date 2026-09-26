@@ -19,6 +19,7 @@ declare namespace _ZoteroTypes {
       "exportLastType": string;
       "useLocalApi": boolean;
       "localApiUrl": string;
+      "localApiKey": string;
       "localApiType": string;
       "localRouterConcurrency": number;
     };
