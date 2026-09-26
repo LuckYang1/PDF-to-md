@@ -29,7 +29,7 @@ Conversion is powered by MinerU and supports three modes:
 - Local API: use MinerU 4.0 V1 API / Router to upload, parse, and download a
   ZIP with images. The default Router address is `http://127.0.0.1:8002`.
 
-[Download latest XPI](https://github.com/LuckYang1/PDF-to-md/releases/download/v0.1.0/pdf-to-markdown.xpi)
+[Download latest XPI](https://github.com/LuckYang1/PDF-to-md/releases/latest/download/pdf-to-markdown.xpi)
 | [View Releases](https://github.com/LuckYang1/PDF-to-md/releases/latest)
 
 ## MinerU Resources
@@ -129,8 +129,8 @@ builds the XPI, publishes it to the versioned GitHub Release, and refreshes the
 Example:
 
 ```powershell
-git tag v0.1.1
-git push origin v0.1.1
+git tag v0.1.2
+git push origin v0.1.2
 ```
 
 ## Settings

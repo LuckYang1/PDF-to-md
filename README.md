@@ -28,7 +28,7 @@ Markdown 或 HTML，并支持导出附件文件。
 - 本地 API：通过 MinerU 4.0 V1 API / Router 上传、解析并下载含图片的 ZIP。
   默认 Router 地址为 `http://127.0.0.1:8002`。
 
-[下载最新版 XPI](https://github.com/LuckYang1/PDF-to-md/releases/download/v0.1.0/pdf-to-markdown.xpi)
+[下载最新版 XPI](https://github.com/LuckYang1/PDF-to-md/releases/latest/download/pdf-to-markdown.xpi)
 | [查看 Release](https://github.com/LuckYang1/PDF-to-md/releases/latest)
 
 ## MinerU 资源
@@ -122,8 +122,8 @@ GitHub Release，并刷新固定 `release` tag 下的 `update.json` 资产，供
 示例：
 
 ```powershell
-git tag v0.1.1
-git push origin v0.1.1
+git tag v0.1.2
+git push origin v0.1.2
 ```
 
 ## 设置
