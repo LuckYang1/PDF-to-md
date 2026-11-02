@@ -138,6 +138,133 @@
   </groupbox>
 
   <groupbox>
+    <label><html:h2 data-l10n-id="pref-translate-title"></html:h2></label>
+    <checkbox
+      native="true"
+      preference="enableTranslate"
+      data-l10n-id="pref-enable-translate"
+    />
+    <hbox align="center">
+      <label
+        data-l10n-id="pref-translate-service"
+        control="zotero-prefpane-__addonRef__-translate-service"
+      />
+      <menulist
+        id="zotero-prefpane-__addonRef__-translate-service"
+        native="true"
+        preference="translateService"
+      >
+        <menupopup>
+          <menuitem
+            data-l10n-id="pref-translate-service-deepseek"
+            value="deepseek"
+          />
+          <menuitem
+            data-l10n-id="pref-translate-service-tencent"
+            value="tencent"
+          />
+          <menuitem
+            data-l10n-id="pref-translate-service-custom"
+            value="custom"
+          />
+        </menupopup>
+      </menulist>
+      <label
+        data-l10n-id="pref-translate-base-url"
+        control="zotero-prefpane-__addonRef__-translate-base-url"
+        style="margin-left: 12px"
+      />
+      <html:input
+        type="text"
+        id="zotero-prefpane-__addonRef__-translate-base-url"
+        style="flex: 1; margin-left: 6px"
+      />
+    </hbox>
+    <hbox align="center">
+      <label
+        data-l10n-id="pref-translate-api-key"
+        control="zotero-prefpane-__addonRef__-translate-api-key"
+      />
+      <html:input
+        type="password"
+        id="zotero-prefpane-__addonRef__-translate-api-key"
+        style="flex: 1; margin-left: 6px"
+      />
+    </hbox>
+    <hbox align="center">
+      <label
+        data-l10n-id="pref-translate-model"
+        control="zotero-prefpane-__addonRef__-translate-model"
+      />
+      <html:input
+        type="text"
+        id="zotero-prefpane-__addonRef__-translate-model"
+        style="flex: 1; margin-left: 6px"
+      />
+    </hbox>
+    <hbox align="center">
+      <label
+        data-l10n-id="pref-translate-mode"
+        control="zotero-prefpane-__addonRef__-translate-mode"
+      />
+      <menulist
+        id="zotero-prefpane-__addonRef__-translate-mode"
+        native="true"
+        preference="translateMode"
+      >
+        <menupopup>
+          <menuitem
+            data-l10n-id="pref-translate-mode-bilingual"
+            value="bilingual"
+          />
+          <menuitem
+            data-l10n-id="pref-translate-mode-translated"
+            value="translated"
+          />
+        </menupopup>
+      </menulist>
+      <label
+        data-l10n-id="pref-translate-target-lang"
+        control="zotero-prefpane-__addonRef__-translate-target-lang"
+        style="margin-left: 12px"
+      />
+      <html:input
+        type="text"
+        id="zotero-prefpane-__addonRef__-translate-target-lang"
+        preference="translateTargetLang"
+        style="width: 8em; margin-left: 6px"
+      />
+      <label
+        data-l10n-id="pref-translate-chunk-size"
+        control="zotero-prefpane-__addonRef__-translate-chunk-size"
+        style="margin-left: 12px"
+      />
+      <html:input
+        type="number"
+        id="zotero-prefpane-__addonRef__-translate-chunk-size"
+        preference="translateChunkSize"
+        min="500"
+        max="16000"
+        step="100"
+        style="width: 6em; margin-left: 6px"
+      />
+    </hbox>
+    <hbox align="center">
+      <button
+        id="zotero-prefpane-__addonRef__-translate-test"
+        data-l10n-id="pref-translate-test"
+      />
+      <label
+        id="zotero-prefpane-__addonRef__-translate-test-status"
+        value=""
+        style="margin-left: 8px"
+      />
+    </hbox>
+    <description data-l10n-id="pref-translate-help"></description>
+    <description data-l10n-id="pref-translate-custom-help"></description>
+  </groupbox>
+
+  <groupbox>
     <label><html:h2 data-l10n-id="pref-export-title"></html:h2></label>
     <hbox align="center">
       <label

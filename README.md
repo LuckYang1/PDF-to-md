@@ -47,6 +47,10 @@ Markdown 或 HTML，并支持导出附件文件。
 - 右键条目或 PDF 附件，通过 `PDF to Markdown` 子菜单执行操作。
 - 支持 `转换为 Markdown (MinerU)`。
 - 支持 `转换为 HTML (MinerU)`。
+- 支持 `翻译已有 Markdown 附件`：跳过重新解析，直接对条目下已有的
+  Markdown 附件生成译文附件（条目下多个 Markdown 时优先翻译本插件转换
+  的结果，再按修改时间取最新；已是译文的附件自动排除；同名译文已存在
+  时跳过）。该操作不依赖"转换后自动翻译"开关，只需翻译服务配置有效。
 - 普通条目下有多个 PDF 时，会弹窗选择具体要解析的 PDF。
 - 转换结果作为 Zotero 附件保存到原条目下。
 - Markdown 结果会复制配套 `images/` 目录；导出附件时也会带出图片，
@@ -55,6 +59,8 @@ Markdown 或 HTML，并支持导出附件文件。
 - 支持新增 PDF 自动转换为 Markdown。
 - 支持导出附件到默认目录或临时选择目录。
 - 右下角显示转换进度，支持最小化和从右键菜单恢复。
+- 可选：转换 Markdown 后调用 OpenAI 兼容接口（内置 DeepSeek、腾讯混元
+  Hy-MT2-Pro 预设，或自定义接口）生成译文 / 双语对照附件。
 
 ## 安装
 
@@ -141,10 +147,41 @@ git push origin v0.1.2
 - `API Key`：本地 V1 服务启用鉴权时填写；未启用时留空。
 - `Router 并发`：本地 Router 模式并发数，默认 `2`。
 - `默认文件夹`：附件导出的默认目录。
+- 翻译设置见下节。
+
+## 翻译（可选）
+
+在设置中启用 `转换 Markdown 后调用翻译接口生成译文附件` 后，每次生成
+Markdown 附件时会额外生成一份译文附件，挂在原条目下：
+
+- `翻译服务` 三选一：
+  - `DeepSeek（内置）`：Base URL `https://api.deepseek.com/v1`，模型
+    `deepseek-flash`（DeepSeek V4.1 Flash）；API Key 在
+    [platform.deepseek.com](https://platform.deepseek.com) 获取。
+  - `腾讯混元 Hy-MT2-Pro（内置）`：Base URL
+    `https://tokenhub.tencentmaas.com/v1`，模型 `hy-mt2-pro`；API Key 在
+    [TokenHub 控制台](https://console.cloud.tencent.com/tokenhub/apikey)
+    获取。
+  - `自定义 OpenAI 兼容接口`：自填 Base URL（含 `/v1`，如
+    `https://api.openai.com/v1`）、API Key 与模型名，可对接任何兼容
+    `POST {base}/chat/completions` 的服务。
+- `产物形式`：
+  - `双语对照（默认）`：原文块下方以引用块（`> `）附上译文。
+  - `仅译文`：只输出译文。
+- `目标语言`：默认 `中文`，可改为任意语言名称。
+- 长文档按 `分块字符数` 自动切块串行翻译；切换服务时自动填入推荐值
+  （DeepSeek `6000` / Hy-MT2-Pro `2500`，可手动修改），代码块与 LaTeX
+  公式不会发送给翻译接口。腾讯 Hy-MT2-Pro 单次输入上限约 4K，不建议调大。
+- 译文附件命名如 `标题 (中文双语对照).md`，并复制配套 `images/` 目录；
+  翻译失败只会在进度面板提示，不影响原 Markdown 附件的保存。
+- 设置页提供 `测试翻译接口` 按钮，发送一句话请求即可验证 Key 是否可用。
+- 仅对 Markdown 输出生效，HTML 输出不翻译。API Key 仅保存在本地 Zotero
+  偏好中，不会上传到任何第三方服务（翻译服务商除外）。
 
 ## 代码结构
 
 - `src/modules/pdfToMd.ts`：菜单、队列、转换流程、进度面板、附件导出。
+- `src/modules/translate.ts`：OpenAI 兼容翻译（分块、双语拼装、请求）。
 - `src/modules/renderHtml.ts`：Markdown / MinerU ZIP 到 HTML 的基础渲染。
 - `addon/content/preferences.xhtml`：Zotero 偏好设置页。
 - `addon/prefs.js`：默认偏好值。

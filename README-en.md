@@ -49,6 +49,12 @@ Conversion is powered by MinerU and supports three modes:
   attachments.
 - Convert PDFs to Markdown with `Convert to Markdown (MinerU)`.
 - Convert PDFs to HTML with `Convert to HTML (MinerU)`.
+- Translate existing Markdown attachments without re-running MinerU via
+  `翻译已有 Markdown 附件` (when an item has several markdown attachments,
+  plugin-generated results come first, then the newest; attachments that are
+  themselves translations are excluded; existing translated names are
+  skipped). This action does not depend on the translate-after-conversion
+  preference — only a valid translation service config is required.
 - Choose a specific PDF when a Zotero item contains multiple PDF attachments.
 - Save conversion results back to the original Zotero item as attachments.
 - Keep Markdown image links usable by copying the companion `images/` folder.
@@ -60,6 +66,9 @@ Conversion is powered by MinerU and supports three modes:
   runtime.
 - Show conversion progress in a bottom-right panel, with minimize and restore
   support from the context menu.
+- Optional: after converting to Markdown, call an OpenAI-compatible API
+  (built-in DeepSeek and Tencent Hy-MT2-Pro presets, or a custom endpoint) to
+  produce a translated / bilingual attachment.
 
 ## Installation
 
@@ -149,11 +158,49 @@ Open `PDF to Markdown` in Zotero preferences:
 - `API key`: fill this in if the local V1 service requires authentication.
 - `Router concurrency`: local Router concurrency. Default is `2`.
 - `Default folder`: default output folder for attachment export.
+- Translation settings: see the next section.
+
+## Translation (optional)
+
+Enable `Translate Markdown output via an OpenAI-compatible API` and every
+Markdown attachment will get an additional translated attachment on the same
+item:
+
+- `Service` (choose one):
+  - `DeepSeek (built-in)`: base URL `https://api.deepseek.com/v1`, model
+    `deepseek-flash` (DeepSeek V4.1 Flash); get an API key from
+    [platform.deepseek.com](https://platform.deepseek.com).
+  - `Tencent Hy-MT2-Pro (built-in)`: base URL
+    `https://tokenhub.tencentmaas.com/v1`, model `hy-mt2-pro`; get an API key
+    from the
+    [TokenHub console](https://console.cloud.tencent.com/tokenhub/apikey).
+  - `Custom OpenAI-compatible endpoint`: fill in the base URL (including
+    `/v1`, e.g. `https://api.openai.com/v1`), API key, and model name. Any
+    service accepting `POST {base}/chat/completions` works.
+- `Output`:
+  - `Bilingual (default)`: the translation is appended below each original
+    block as a blockquote (`> `).
+  - `Translation only`: only the translation is kept.
+- `Target language`: default `中文` (Chinese); any language name works.
+- Long documents are translated serially in chunks; switching the service
+  fills in its recommended chunk size (DeepSeek `6000` / Hy-MT2-Pro `2500`,
+  still manually editable). Code blocks and LaTeX formulas are never sent to
+  the API. Tencent Hy-MT2-Pro has a ~4K input limit, so keep its chunk size
+  moderate.
+- The translated attachment is named like `Title (中文双语对照).md` and gets
+  its own copy of the companion `images/` folder. A translation failure is
+  reported in the progress panel and never blocks the original attachment.
+- The `Test translation API` button sends a one-sentence request to verify
+  the key.
+- Only Markdown output is translated; HTML output is left as is. API keys are
+  stored locally in Zotero preferences.
 
 ## Project Structure
 
 - `src/modules/pdfToMd.ts`: menus, queue, conversion flow, progress panel, and
   attachment export.
+- `src/modules/translate.ts`: OpenAI-compatible translation (chunking,
+  bilingual assembly, requests).
 - `src/modules/renderHtml.ts`: basic rendering from Markdown / MinerU ZIP to
   HTML.
 - `addon/content/preferences.xhtml`: Zotero preferences page.

@@ -22,6 +22,16 @@ declare namespace _ZoteroTypes {
       "localApiKey": string;
       "localApiType": string;
       "localRouterConcurrency": number;
+      "enableTranslate": boolean;
+      "translateService": string;
+      "translateMode": string;
+      "translateTargetLang": string;
+      "translateDeepseekKey": string;
+      "translateTencentKey": string;
+      "translateCustomBaseUrl": string;
+      "translateCustomKey": string;
+      "translateCustomModel": string;
+      "translateChunkSize": number;
     };
   }
 }
