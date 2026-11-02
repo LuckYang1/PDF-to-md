@@ -3,6 +3,17 @@
 import { config } from "../../package.json";
 import { getPref, setPref } from "../utils/prefs";
 import { renderMarkdownToHTML, renderMarkdownZipToHTML } from "./renderHtml";
+import {
+  chatCompletion,
+  buildTranslationMessages,
+  getServiceConfig,
+  maxChunkSize,
+  recommendedChunkSize,
+  translateMarkdown,
+  validateServiceConfig,
+  TRANSLATE_PRESETS,
+  type TranslateMode,
+} from "./translate";
 
 export type OutputFormat = "markdown" | "html";
 
@@ -39,6 +50,17 @@ export type ConversionJob = {
   progressKey: string;
   finished: boolean;
   saved: boolean;
+  errMsg: string;
+};
+
+/** An existing markdown attachment selected for translation-only. */
+type TranslationTarget = {
+  att: Zotero.Item;
+  parent: Zotero.Item | null;
+  path: string;
+  mdName: string;
+  translatedName: string;
+  progressKey: string;
   errMsg: string;
 };
 
@@ -122,12 +144,42 @@ export class PDFToMarkdownService {
   }
 
   registerPrefs(): void {
+    this.unregisterPrefsPanes();
     Zotero.PreferencePanes.register({
       pluginID: config.addonID,
       src: rootURI + "content/preferences.xhtml",
       label: "PDF to Markdown",
       image: `chrome://${config.addonRef}/content/icons/pdf-to-md-zotero-icon2.svg`,
     });
+  }
+
+  /**
+   * Zotero's PreferencePanes.register() only de-duplicates by random
+   * pane ids, so a re-install / upgrade in the same session can leave
+   * two "PDF to Markdown" entries in the preferences sidebar. Drop any
+   * stale panes registered by this add-on before registering again.
+   */
+  private unregisterPrefsPanes(): void {
+    const panes = Zotero.PreferencePanes as unknown as {
+      pluginPanes?: Array<{ id?: string; pluginID?: string }>;
+      unregister?: (id: string) => void;
+    };
+    const stale = (panes.pluginPanes || []).filter(
+      (pane) => pane?.pluginID === config.addonID,
+    );
+    for (const pane of stale) {
+      try {
+        if (panes.unregister && pane.id) {
+          panes.unregister(pane.id);
+        } else {
+          panes.pluginPanes = (panes.pluginPanes || []).filter(
+            (item) => item !== pane,
+          );
+        }
+      } catch (e) {
+        this.log(`Prefs pane cleanup failed: ${this.errorMessage(e)}`);
+      }
+    }
   }
 
   addToAllWindows(): void {
@@ -192,6 +244,9 @@ export class PDFToMarkdownService {
     add("convert-html", "转换为 HTML (MinerU)", () =>
       this.convertSelectedItems(win, "html"),
     );
+    add("translate-md", "翻译已有 Markdown 附件", () =>
+      this.translateSelectedItems(win),
+    );
     add("export", "导出附件", () => this.exportSelected(win, false));
     add("export-to", "导出附件到…", () => this.exportSelected(win, true));
 
@@ -218,6 +273,8 @@ export class PDFToMarkdownService {
   onPrefsLoad(win: Window): void {
     this.bindFolderPicker(win);
     this.bindLocalApiTest(win);
+    this.bindTranslateServiceSwitch(win);
+    this.bindTranslateTest(win);
   }
 
   async convertSelectedItems(
@@ -267,6 +324,282 @@ export class PDFToMarkdownService {
         this.log(`Run error: ${this.errorMessage(e)}`);
       });
     return this.chain;
+  }
+
+  /**
+   * Translate existing markdown attachments without re-running MinerU.
+   * Reached from the "翻译已有 Markdown 附件" context-menu item; does not
+   * depend on the "translate after conversion" preference.
+   */
+  async translateSelectedItems(win: ZoteroWindow): Promise<void> {
+    const items = this.getSelectedItems(win);
+    if (!items.length) {
+      win.alert("未选择条目。");
+      return;
+    }
+    this.enqueueTranslate(items, win, true);
+  }
+
+  enqueueTranslate(
+    items: Zotero.Item[],
+    win: ZoteroWindow | null,
+    interactive: boolean,
+  ): Promise<void> {
+    const signature = `translate:${items
+      .map((item) => item.id)
+      .sort((a, b) => a - b)
+      .join(",")}`;
+    if (this.enqueuedSignatures.has(signature)) {
+      this.toast(["PDF2MD: 相同任务已在队列中"], 2000);
+      return this.chain;
+    }
+    this.enqueuedSignatures.add(signature);
+    const queued = this.busy || this.progressState.active;
+    if (!queued && this.queueDone >= this.queueTotal) {
+      this.queueTotal = 0;
+      this.queueDone = 0;
+    }
+    if (queued) this.toast(["PDF2MD: 已加入队列"], 2000);
+    this.chain = this.chain
+      .then(async () => {
+        try {
+          await this.runTranslationOnly(items, win, interactive);
+        } finally {
+          this.enqueuedSignatures.delete(signature);
+        }
+      })
+      .catch((e) => {
+        this.enqueuedSignatures.delete(signature);
+        this.log(`Translate-only error: ${this.errorMessage(e)}`);
+      });
+    return this.chain;
+  }
+
+  private async runTranslationOnly(
+    items: Zotero.Item[],
+    win: ZoteroWindow | null,
+    interactive: boolean,
+  ): Promise<void> {
+    if (!addon.data.alive) return;
+    const cfg = getServiceConfig();
+    const configError = validateServiceConfig(cfg);
+    if (configError) {
+      const message = `翻译服务配置不完整: ${configError}`;
+      this.log(`Translation-only aborted: ${configError}`);
+      if (interactive && win) win.alert(`PDF2MD: ${message}`);
+      else this.toast([`PDF2MD: ${message}`], 5000);
+      return;
+    }
+
+    const { targets, skipped } = await this.collectTranslationTargets(items);
+    if (skipped.length) this.log(`Skipped:\n  ${skipped.join("\n  ")}`);
+    if (!targets.length) {
+      if (interactive) {
+        this.toast([
+          "PDF2MD: 没有可翻译的 Markdown 附件",
+          "请选中包含 .md 附件的条目,或直接选中 Markdown 附件",
+        ]);
+      }
+      return;
+    }
+
+    this.busy = true;
+    try {
+      this.queueTotal = Math.max(
+        this.queueTotal,
+        this.queueDone + targets.length,
+      );
+      this.statusShow(`PDF2MD 翻译 ${this.queueDone}/${this.queueTotal}`);
+      this.statusTotal(this.queueTotal);
+      this.statusDone(this.queueDone);
+      this.statusQueued(0);
+      const notes = [
+        `服务: ${this.translateServiceLabel()}` +
+          ` (${this.translateModePref() === "bilingual" ? "双语" : "译文"})`,
+      ];
+      if (skipped.length) notes.push(`已跳过 ${skipped.length} 个`);
+      this.statusNote(notes.join(" · "));
+
+      let failed = 0;
+      for (const target of targets) {
+        try {
+          await this.translateExistingAttachment(target);
+        } catch (e) {
+          failed++;
+          target.errMsg = this.errorMessage(e);
+          this.statusLine(
+            target.progressKey,
+            `• ${this.short(target.mdName)}: ${this.short(target.errMsg, 40)}`,
+            "error",
+          );
+          this.log(
+            `Translate existing failed for ${target.mdName}: ${target.errMsg}`,
+          );
+        }
+        this.queueDone++;
+        this.statusDone(this.queueDone);
+        this.statusHeadline(`PDF2MD 翻译 ${this.queueDone}/${this.queueTotal}`);
+      }
+      this.statusHeadline(
+        `PDF2MD: 翻译完成 ${this.queueDone}/${this.queueTotal}` +
+          `${failed ? `, 失败 ${failed} 个` : ""}`,
+      );
+    } finally {
+      this.busy = false;
+      this.statusClose(8000);
+    }
+  }
+
+  private async collectTranslationTargets(
+    items: Zotero.Item[],
+  ): Promise<{ targets: TranslationTarget[]; skipped: string[] }> {
+    const targets: TranslationTarget[] = [];
+    const seen = new Set<number>();
+    const skipped: string[] = [];
+    const targetLang = this.translateTargetLangPref();
+    const mode = this.translateModePref();
+
+    for (const item of items) {
+      try {
+        let mdAtts: Zotero.Item[] = [];
+        if (item.isAttachment()) {
+          if (this.isMarkdownAttachment(item)) {
+            mdAtts = [item];
+          } else {
+            skipped.push(`${this.label(item)}: 不是 Markdown 附件`);
+            continue;
+          }
+        } else if (item.isRegularItem()) {
+          mdAtts = item
+            .getAttachments()
+            .map((id) => Zotero.Items.get(id))
+            .filter((att) => this.isMarkdownAttachment(att));
+          // Prefer results produced by this plugin, then the newest.
+          mdAtts.sort(
+            (a, b) =>
+              (this.hasTag(b, ATTACHMENT_TAG) ? 1 : 0) -
+                (this.hasTag(a, ATTACHMENT_TAG) ? 1 : 0) ||
+              String(b.dateModified).localeCompare(String(a.dateModified)),
+          );
+          if (!mdAtts.length) {
+            skipped.push(`${this.label(item)}: 没有 Markdown 附件`);
+            continue;
+          }
+        } else {
+          skipped.push(`${this.label(item)}: 不可翻译`);
+          continue;
+        }
+
+        for (const att of mdAtts) {
+          if (seen.has(att.id)) continue;
+          seen.add(att.id);
+          const path = await att.getFilePathAsync();
+          if (!path) {
+            skipped.push(`${this.label(item)}: Markdown 不在本地磁盘`);
+            continue;
+          }
+          const mdName = PathUtils.filename(path);
+          // Never re-translate an attachment that is itself a translation.
+          if (
+            /\([^()]*双语对照\)\.md$/i.test(mdName) ||
+            /\([^()]*译文\)\.md$/i.test(mdName)
+          ) {
+            skipped.push(`${mdName}: 已是译文附件`);
+            continue;
+          }
+          const parent = att.parentItem || (item.isRegularItem() ? item : null);
+          const translatedName = this.translatedOutputName(
+            mdName,
+            targetLang,
+            mode,
+          );
+          if (parent && this.hasOutputAttachment(parent, translatedName)) {
+            skipped.push(`${this.label(item)}: 已存在 ${translatedName}`);
+            continue;
+          }
+          targets.push({
+            att,
+            parent,
+            path,
+            mdName,
+            translatedName,
+            progressKey: `trans-${att.libraryID}-${att.id}`,
+            errMsg: "",
+          });
+        }
+      } catch (e) {
+        skipped.push(`${this.label(item)}: ${this.errorMessage(e)}`);
+      }
+    }
+    return { targets, skipped };
+  }
+
+  private async translateExistingAttachment(
+    target: TranslationTarget,
+  ): Promise<void> {
+    const jobLike = {
+      pdfName: target.mdName,
+      progressKey: target.progressKey,
+    } as unknown as ConversionJob;
+    this.setLine(jobLike, "翻译中");
+    const markdown = await IOUtils.readUTF8(target.path);
+    if (!markdown.trim()) throw new Error("markdown 为空");
+
+    const cfg = getServiceConfig();
+    const chunkSize = this.getIntPref("translateChunkSize", 2500, 500, 16000);
+    const chunkLimit = maxChunkSize(cfg.name, chunkSize);
+    const translated = await translateMarkdown(
+      markdown,
+      {
+        cfg,
+        targetLang: this.translateTargetLangPref(),
+        mode: this.translateModePref(),
+        chunkSize,
+        maxChunkSize: chunkLimit,
+        onProgress: (done, total) =>
+          this.setLine(jobLike, `翻译中 ${done}/${total}`),
+      },
+      this.mainWindow(),
+    );
+
+    const tmpDir = PathUtils.join(
+      Zotero.getTempDirectory().path,
+      `${config.addonRef}-trans-${target.att.libraryID}-${target.att.id}-${Date.now()}`,
+    );
+    await IOUtils.makeDirectory(tmpDir, {
+      createAncestors: true,
+      ignoreExisting: true,
+    });
+    try {
+      this.setLine(jobLike, "保存中");
+      const translatedPath = PathUtils.join(tmpDir, target.translatedName);
+      await IOUtils.writeUTF8(translatedPath, translated);
+      const options: Record<string, any> = {
+        file: translatedPath,
+        contentType: "text/markdown",
+        charset: "utf-8",
+        title: target.translatedName,
+      };
+      if (target.parent) {
+        options.parentItemID = target.parent.id;
+      } else {
+        options.libraryID = target.att.libraryID;
+        const cols = target.att.getCollections();
+        if (cols.length) options.collections = cols;
+      }
+      const newAtt = await (Zotero.Attachments as any).importFromFile(options);
+      await this.tagConversionResult(newAtt, target.parent);
+      const sourceImages = PathUtils.join(
+        PathUtils.parent(target.path),
+        "images",
+      );
+      if ((await this.countFiles(sourceImages)) > 0) {
+        await this.copyCompanionImages(newAtt, sourceImages);
+      }
+      this.setLine(jobLike, "完成", "done");
+    } finally {
+      await this.removeTemp(tmpDir);
+    }
   }
 
   private async onNotify(
@@ -343,6 +676,12 @@ export class PDFToMarkdownService {
       if (useLocal)
         notes.push(`本地 API: ${String(getPref("localApiUrl") || "")}`);
       else if (light) notes.push("轻量接口,未填写 Token (≤20 页)");
+      if (outputFormat === "markdown" && getPref("enableTranslate")) {
+        notes.push(
+          `翻译: ${this.translateServiceLabel()}` +
+            ` (${this.translateModePref() === "bilingual" ? "双语" : "译文"})`,
+        );
+      }
       if (skipped.length) notes.push(`已跳过 ${skipped.length} 个`);
       if (notes.length) this.statusNote(notes.join(" · "));
 
@@ -477,6 +816,21 @@ export class PDFToMarkdownService {
         if (parent && this.hasOutputAttachment(parent, outputName)) {
           skipped.push(`${this.label(sourceItem)}: 已存在 ${outputName}`);
           continue;
+        }
+        if (
+          parent &&
+          outputFormat === "markdown" &&
+          getPref("enableTranslate")
+        ) {
+          const translatedName = this.translatedOutputName(
+            outputName,
+            this.translateTargetLangPref(),
+            this.translateModePref(),
+          );
+          if (this.hasOutputAttachment(parent, translatedName)) {
+            skipped.push(`${this.label(sourceItem)}: 已存在 ${translatedName}`);
+            continue;
+          }
         }
         jobs.push({
           att,
@@ -841,10 +1195,28 @@ export class PDFToMarkdownService {
     } else {
       await this.extractMarkdownFromZip(zipPath, outputPath, imagesDir);
       const hasImages = (await this.countFiles(imagesDir)) > 0;
+      const translation = await this.translateMarkdownOutput(
+        job,
+        outputPath,
+        tmpDir,
+      );
       const att = await this.importAttachment(job, outputPath, tmpDir, false);
       if (hasImages) {
         const copied = await this.copyCompanionImages(att, imagesDir);
         this.log(`${job.pdfName}: copied ${copied} image(s) from token result`);
+      }
+      if (translation) {
+        const translatedAtt = await this.importAttachment(
+          job,
+          translation.path,
+          tmpDir,
+          false,
+          { title: translation.name },
+        );
+        if (hasImages) {
+          await this.copyCompanionImages(translatedAtt, imagesDir);
+        }
+        this.log(`${job.pdfName}: translation saved as ${translation.name}`);
       }
       await this.removeTemp(tmpDir);
     }
@@ -873,7 +1245,17 @@ export class PDFToMarkdownService {
     } else {
       await IOUtils.writeUTF8(outputPath, markdown);
     }
-    await this.importAttachment(job, outputPath, tmpDir);
+    const translation =
+      job.outputFormat === "markdown"
+        ? await this.translateMarkdownOutput(job, outputPath, tmpDir)
+        : null;
+    await this.importAttachment(job, outputPath, tmpDir, !translation);
+    if (translation) {
+      await this.importAttachment(job, translation.path, tmpDir, true, {
+        title: translation.name,
+      });
+      this.log(`${job.pdfName}: translation saved as ${translation.name}`);
+    }
   }
 
   private async saveLocalZipResult(
@@ -901,10 +1283,28 @@ export class PDFToMarkdownService {
 
     await this.extractMarkdownFromZip(zipPath, outputPath, imagesDir);
     const hasImages = (await this.countFiles(imagesDir)) > 0;
+    const translation = await this.translateMarkdownOutput(
+      job,
+      outputPath,
+      tmpDir,
+    );
     const att = await this.importAttachment(job, outputPath, tmpDir, false);
     if (hasImages) {
       const copied = await this.copyCompanionImages(att, imagesDir);
       this.log(`${job.pdfName}: copied ${copied} image(s)`);
+    }
+    if (translation) {
+      const translatedAtt = await this.importAttachment(
+        job,
+        translation.path,
+        tmpDir,
+        false,
+        { title: translation.name },
+      );
+      if (hasImages) {
+        await this.copyCompanionImages(translatedAtt, imagesDir);
+      }
+      this.log(`${job.pdfName}: translation saved as ${translation.name}`);
     }
     await this.removeTemp(tmpDir);
   }
@@ -1010,12 +1410,13 @@ export class PDFToMarkdownService {
     filePath: string,
     tmpDir: string,
     cleanup = true,
+    overrides?: { title?: string; contentType?: string },
   ): Promise<Zotero.Item> {
     const options: Record<string, any> = {
       file: filePath,
-      contentType: job.contentType,
+      contentType: overrides?.contentType || job.contentType,
       charset: "utf-8",
-      title: job.outputName,
+      title: overrides?.title || job.outputName,
     };
     if (job.parent) {
       options.parentItemID = job.parent.id;
@@ -1043,6 +1444,89 @@ export class PDFToMarkdownService {
       }
     } catch (e) {
       this.log(`Tagging converted item failed: ${this.errorMessage(e)}`);
+    }
+  }
+
+  private translatedOutputName(
+    outputName: string,
+    targetLang: string,
+    mode: TranslateMode,
+  ): string {
+    const base = outputName.replace(/\.(md|html)$/i, "");
+    const suffix =
+      mode === "translated" ? `(${targetLang}译文)` : `(${targetLang}双语对照)`;
+    return `${this.sanitize(`${base} ${suffix}`)}.md`;
+  }
+
+  private translateModePref(): TranslateMode {
+    return String(getPref("translateMode") || "bilingual") === "translated"
+      ? "translated"
+      : "bilingual";
+  }
+
+  private translateTargetLangPref(): string {
+    return String(getPref("translateTargetLang") || "").trim() || "中文";
+  }
+
+  /**
+   * Translate a converted markdown file before it is imported as a
+   * Zotero attachment. Returns the translated file path and attachment
+   * title, or null when translation is disabled / not applicable /
+   * failed (a failure never blocks the original attachment).
+   */
+  private async translateMarkdownOutput(
+    job: ConversionJob,
+    outputPath: string,
+    tmpDir: string,
+  ): Promise<{ path: string; name: string } | null> {
+    if (!getPref("enableTranslate") || job.outputFormat !== "markdown") {
+      return null;
+    }
+    const cfg = getServiceConfig();
+    const configError = validateServiceConfig(cfg);
+    if (configError) {
+      this.setLine(job, `翻译跳过: ${configError}`, "error");
+      this.log(`Translation skipped for ${job.pdfName}: ${configError}`);
+      return null;
+    }
+    const targetLang = this.translateTargetLangPref();
+    const mode = this.translateModePref();
+    const chunkSize = this.getIntPref("translateChunkSize", 2500, 500, 16000);
+    // Paragraph-adaptive: paragraphs up to the service hard limit stay
+    // whole even when larger than the target chunk size.
+    const chunkLimit = maxChunkSize(cfg.name, chunkSize);
+    const name = this.translatedOutputName(job.outputName, targetLang, mode);
+    try {
+      const markdown = await IOUtils.readUTF8(outputPath);
+      if (!markdown.trim()) return null;
+      this.setLine(job, "翻译中");
+      const translated = await translateMarkdown(
+        markdown,
+        {
+          cfg,
+          targetLang,
+          mode,
+          chunkSize,
+          maxChunkSize: chunkLimit,
+          onProgress: (done, total) =>
+            this.setLine(job, `翻译中 ${done}/${total}`),
+        },
+        this.mainWindow(),
+      );
+      const translatedPath = PathUtils.join(tmpDir, name);
+      await IOUtils.writeUTF8(translatedPath, translated);
+      this.setLine(job, "保存中");
+      return { path: translatedPath, name };
+    } catch (e) {
+      this.setLine(
+        job,
+        `翻译失败: ${this.short(this.errorMessage(e), 40)}`,
+        "error",
+      );
+      this.log(
+        `Translation failed for ${job.pdfName}: ${this.errorMessage(e)}`,
+      );
+      return null;
     }
   }
 
@@ -1241,6 +1725,89 @@ export class PDFToMarkdownService {
     }
   }
 
+  async testTranslateApiFromPrefs(win: Window): Promise<void> {
+    const doc = win.document;
+    const btn = doc.getElementById(
+      `zotero-prefpane-${config.addonRef}-translate-test`,
+    ) as HTMLButtonElement | null;
+    const status = doc.getElementById(
+      `zotero-prefpane-${config.addonRef}-translate-test-status`,
+    );
+    const originalLabel = btn?.getAttribute("label") || "";
+    const setStatus = (text: string, ok: boolean) => {
+      if (status) {
+        status.setAttribute("value", text);
+        (status as HTMLElement).style.color = ok ? "#1d6e36" : "#b03232";
+      }
+      // Mirror the state on the button itself so feedback is obvious.
+      if (btn) btn.setAttribute("label", this.short(text, 18));
+    };
+    const inputValue = (suffix: string, prefKey: string) => {
+      const el = doc.getElementById(
+        `zotero-prefpane-${config.addonRef}-${suffix}`,
+      ) as HTMLInputElement | null;
+      return String(el?.value ?? getPref(prefKey) ?? "").trim();
+    };
+    const keyPrefOf = (service: string) =>
+      service === "deepseek"
+        ? "translateDeepseekKey"
+        : service === "tencent"
+          ? "translateTencentKey"
+          : "translateCustomKey";
+    try {
+      if (btn) btn.disabled = true;
+      setStatus("测试中...", true);
+      const service = String(
+        inputValue("translate-service", "translateService") || "custom",
+      );
+      const name =
+        service === "deepseek" || service === "tencent" ? service : "custom";
+      const preset = name === "custom" ? null : TRANSLATE_PRESETS[name];
+      const cfg = {
+        name,
+        baseUrl: (
+          inputValue("translate-base-url", "translateCustomBaseUrl") ||
+          preset?.baseUrl ||
+          ""
+        ).replace(/\/+$/, ""),
+        apiKey: inputValue("translate-api-key", keyPrefOf(name)),
+        model:
+          inputValue("translate-model", "translateCustomModel") ||
+          preset?.model ||
+          "",
+      };
+      const configError = validateServiceConfig(cfg);
+      if (configError) throw new Error(configError);
+      const targetLang =
+        inputValue("translate-target-lang", "translateTargetLang") || "中文";
+      const started = Date.now();
+      const reply = await chatCompletion(
+        cfg,
+        buildTranslationMessages("Hello, world.", targetLang),
+        win as any,
+        30000,
+      );
+      setStatus(
+        `连接正常 (${Date.now() - started}ms): ${this.short(reply, 24)}`,
+        true,
+      );
+    } catch (e) {
+      setStatus(`测试失败: ${this.errorMessage(e)}`, false);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        if (originalLabel) btn.setAttribute("label", originalLabel);
+      }
+    }
+  }
+
+  private translateServiceLabel(): string {
+    const name = String(getPref("translateService") || "");
+    if (name === "deepseek") return TRANSLATE_PRESETS.deepseek.label;
+    if (name === "tencent") return TRANSLATE_PRESETS.tencent.label;
+    return "自定义接口";
+  }
+
   private chooseExportFiles(
     win: ZoteroWindow,
     files: Array<{ att: Zotero.Item; path: string; type: string }>,
@@ -1299,6 +1866,110 @@ export class PDFToMarkdownService {
     );
   }
 
+  private bindTranslateTest(win: Window): void {
+    const button = win.document.getElementById(
+      `zotero-prefpane-${config.addonRef}-translate-test`,
+    );
+    if (!button || button.hasAttribute("data-pdf2md-wired")) return;
+    button.setAttribute("data-pdf2md-wired", "1");
+    const run = () => {
+      if ((button as HTMLButtonElement).disabled) return;
+      this.testTranslateApiFromPrefs(win).catch((e) =>
+        this.log(`Translate API test failed: ${this.errorMessage(e)}`),
+      );
+    };
+    // XUL buttons fire "command", but in some preference pane contexts
+    // only "click" reaches the button — bind both; the disabled flag
+    // keeps a single test in flight.
+    button.addEventListener("command", run);
+    button.addEventListener("click", run);
+  }
+
+  /**
+   * One aggregated form for all services: the base URL and model boxes
+   * show the built-in preset (read-only) or the custom values; a single
+   * API key box edits the active service's own stored key. Switching
+   * the service swaps the box contents and fills in the recommended
+   * chunk size (DeepSeek 6000 / Hy-MT2-Pro 2500 / custom 2500, still
+   * manually editable).
+   */
+  private bindTranslateServiceSwitch(win: Window): void {
+    const doc = win.document;
+    const prefix = `zotero-prefpane-${config.addonRef}`;
+    const serviceList = doc.getElementById(`${prefix}-translate-service`);
+    if (!serviceList || serviceList.hasAttribute("data-pdf2md-wired")) return;
+    serviceList.setAttribute("data-pdf2md-wired", "1");
+    const keyPrefs: Record<string, string> = {
+      deepseek: "translateDeepseekKey",
+      tencent: "translateTencentKey",
+      custom: "translateCustomKey",
+    };
+    const input = (id: string) =>
+      doc.getElementById(`${prefix}-${id}`) as HTMLInputElement | null;
+    const normalize = (value: string) =>
+      value === "deepseek" || value === "tencent" ? value : "custom";
+    let current = normalize(String(getPref("translateService") || "custom"));
+
+    const flushKey = () => {
+      const keyInput = input("translate-api-key");
+      if (keyInput) setPref(keyPrefs[current], String(keyInput.value ?? ""));
+    };
+    const setReadonly = (el: HTMLInputElement | null, value: boolean) => {
+      if (!el) return;
+      if (value) el.setAttribute("readonly", "true");
+      else el.removeAttribute("readonly");
+    };
+    const applyServiceUI = (value: string, resetChunkSize: boolean) => {
+      const active = normalize(value);
+      current = active;
+      const preset = active === "custom" ? null : TRANSLATE_PRESETS[active];
+      const urlInput = input("translate-base-url");
+      if (urlInput) {
+        urlInput.value = preset
+          ? preset.baseUrl
+          : String(getPref("translateCustomBaseUrl") || "");
+        setReadonly(urlInput, !!preset);
+      }
+      const modelInput = input("translate-model");
+      if (modelInput) {
+        modelInput.value = preset
+          ? preset.model
+          : String(getPref("translateCustomModel") || "");
+        setReadonly(modelInput, !!preset);
+      }
+      const keyInput = input("translate-api-key");
+      if (keyInput) keyInput.value = String(getPref(keyPrefs[active]) || "");
+      if (resetChunkSize) {
+        const size = recommendedChunkSize(active);
+        setPref("translateChunkSize", size);
+        const sizeInput = input("translate-chunk-size");
+        if (sizeInput) sizeInput.value = String(size);
+      }
+    };
+    applyServiceUI(current, false);
+    input("translate-base-url")?.addEventListener("change", (event) => {
+      if (current === "custom") {
+        setPref(
+          "translateCustomBaseUrl",
+          String((event.target as HTMLInputElement).value || "").trim(),
+        );
+      }
+    });
+    input("translate-model")?.addEventListener("change", (event) => {
+      if (current === "custom") {
+        setPref(
+          "translateCustomModel",
+          String((event.target as HTMLInputElement).value || "").trim(),
+        );
+      }
+    });
+    input("translate-api-key")?.addEventListener("change", flushKey);
+    serviceList.addEventListener("command", () => {
+      flushKey();
+      applyServiceUI(String((serviceList as any).value || "custom"), true);
+    });
+  }
+
   private hasProcessableSelection(items: Zotero.Item[]): boolean {
     return items.some((item) => {
       if (item.isAttachment()) return true;
@@ -1345,6 +2016,24 @@ export class PDFToMarkdownService {
       if (item.isPDFAttachment()) return true;
     } catch {}
     return item.attachmentContentType === "application/pdf";
+  }
+
+  private isMarkdownAttachment(
+    item?: Zotero.Item | false,
+  ): item is Zotero.Item {
+    if (!item || !item.isAttachment()) return false;
+    try {
+      if (item.attachmentContentType === "text/markdown") return true;
+    } catch {}
+    return /\.md$/i.test(String(item.attachmentFilename || ""));
+  }
+
+  private hasTag(item: Zotero.Item, tag: string): boolean {
+    try {
+      return item.hasTag(tag);
+    } catch {
+      return false;
+    }
   }
 
   private countParentPDFAttachments(parent: Zotero.Item): number {
